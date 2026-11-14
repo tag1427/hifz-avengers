@@ -17,6 +17,6 @@ ENV DATA_DIR=/data
 
 RUN mkdir -p /data
 
-EXPOSE 3000
+EXPOSE 3000 80
 
 CMD ["node", "server.mjs"]

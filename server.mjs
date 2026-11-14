@@ -163,7 +163,7 @@ async function serveStatic(urlPathname, res) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+async function requestHandler(req, res) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
   if (url.pathname === '/api/health' && req.method === 'GET') {
@@ -191,15 +191,38 @@ const server = http.createServer(async (req, res) => {
 
   res.writeHead(405);
   res.end('Method Not Allowed');
-});
+}
 
-server.listen(PORT, HOST, () => {
+const servers = [];
+const primaryServer = http.createServer(requestHandler);
+servers.push(primaryServer);
+
+primaryServer.listen(PORT, HOST, () => {
   console.log(`Hifz Avengers server listening on http://${HOST}:${PORT} (storage: ${STATE_FILE})`);
 });
 
+// Also listen on port 80 in production containers in case reverse proxy defaults to port 80
+if (PORT !== 80 && process.env.NODE_ENV === 'production') {
+  const port80Server = http.createServer(requestHandler);
+  port80Server.on('error', (err) => {
+    console.warn('Optional port 80 listener skipped:', err.message);
+  });
+  port80Server.listen(80, HOST, () => {
+    console.log(`Hifz Avengers server also listening on http://${HOST}:80`);
+    servers.push(port80Server);
+  });
+}
+
 function shutdown(signal) {
   console.log(`Received ${signal}, shutting down gracefully...`);
-  server.close(() => {
+  Promise.all(
+    servers.map(
+      (srv) =>
+        new Promise((resolve) => {
+          srv.close(() => resolve());
+        })
+    )
+  ).finally(() => {
     process.exit(0);
   });
 }
