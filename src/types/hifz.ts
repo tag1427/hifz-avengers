@@ -12,10 +12,17 @@ export interface HeroTheme {
   badgeBg: string;
 }
 
+export interface QuranPosition {
+  juz: number; // 1-30
+  surahNumber: number; // 1-114
+  ayatNumber: number; // 0 = start of surah, 1..totalAyats
+}
+
 export interface DailyLogEntry {
   id: string;
   date: string; // YYYY-MM-DD
   createdAt: string; // ISO timestamp
+  murajaatJuz?: number; // 1-30 Sipara revised
   murajaatPages: number;
   murajaatMark: number; // 1-10
   juzHaliPages: number;
@@ -23,6 +30,10 @@ export interface DailyLogEntry {
   jadeedAyats: number;
   jadeedMark: number; // 1-10
   jadeedNote?: string;
+  jadeedJuz?: number;
+  jadeedSurahNumber?: number;
+  jadeedStartAyat?: number;
+  jadeedEndAyat?: number;
   xpEarned: number;
 }
 
@@ -73,6 +84,7 @@ export interface AppSettings {
 
 export interface AppState {
   settings: AppSettings;
+  quranPosition: QuranPosition;
   xp: number;
   shortTermGoal: ShortTermGoal;
   longTermGoal: LongTermGoal;

@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from 'react';
-import { BookOpen, Calendar, CheckCircle2, Minus, Plus, Rocket, ShieldCheck, Sparkles } from 'lucide-react';
+import { BookMarked, BookOpen, Calendar, CheckCircle2, Minus, Plus, Rocket, ShieldCheck, Sparkles } from 'lucide-react';
 import { getLocalDateString } from '../data/defaultState';
-import type { AppSettings } from '../types/hifz';
+import {
+  QURAN_JUZ_LIST,
+  advanceQuranPosition,
+  getSurahInfo,
+} from '../data/quranMetadata';
+import type { AppSettings, QuranPosition } from '../types/hifz';
 import { getMarkFeedback } from '../utils/hifzMath';
 import { playTapClick } from '../utils/sound';
 
 export interface DailyMissionPayload {
   date: string;
+  murajaatJuz: number;
   murajaatPages: number;
   murajaatMark: number;
   juzHaliPages: number;
@@ -18,6 +24,8 @@ export interface DailyMissionPayload {
 
 interface DailyLogFormProps {
   settings: AppSettings;
+  quranPosition: QuranPosition;
+  lastMurajaatJuz?: number;
   onSubmitMission: (payload: DailyMissionPayload) => void;
 }
 
@@ -83,21 +91,30 @@ function MarkSelector({ idPrefix, label, value, soundEnabled, onChange }: MarkSe
   );
 }
 
-export function DailyLogForm({ settings, onSubmitMission }: DailyLogFormProps) {
+export function DailyLogForm({
+  settings,
+  quranPosition,
+  lastMurajaatJuz = 30,
+  onSubmitMission,
+}: DailyLogFormProps) {
   const [date, setDate] = useState<string>(() => getLocalDateString());
-  const [murajaatPages, setMurajaatPages] = useState<number>(settings.defaultMurajaatPages);
+  const [murajaatJuz, setMurajaatJuz] = useState<number>(lastMurajaatJuz);
   const [murajaatMark, setMurajaatMark] = useState<number>(9);
   const [juzHaliPages, setJuzHaliPages] = useState<number>(settings.defaultJuzHaliPages);
   const [juzHaliMark, setJuzHaliMark] = useState<number>(9);
-  const [jadeedAyats, setJadeedAyats] = useState<number>(5);
+  const [jadeedAyats, setJadeedAyats] = useState<number>(4);
   const [jadeedMark, setJadeedMark] = useState<number>(9);
   const [jadeedNote, setJadeedNote] = useState<string>('');
+
+  const currentSurah = getSurahInfo(quranPosition.surahNumber);
+  const advancePreview = advanceQuranPosition(quranPosition, jadeedAyats);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     onSubmitMission({
       date,
-      murajaatPages: Math.max(0, murajaatPages),
+      murajaatJuz,
+      murajaatPages: settings.defaultMurajaatPages,
       murajaatMark,
       juzHaliPages: Math.max(0, juzHaliPages),
       juzHaliMark,
@@ -143,56 +160,29 @@ export function DailyLogForm({ settings, onSubmitMission }: DailyLogFormProps) {
         <fieldset className="rounded-2xl border-2 border-slate-900 bg-sky-50 p-3.5 sm:p-4">
           <legend className="flex items-center gap-1.5 rounded-xl border-2 border-slate-900 bg-sky-500 px-3 py-1 font-display text-sm font-black uppercase tracking-wide text-white shadow-comic-sm">
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            <span>1. Murajaat (Revision)</span>
+            <span>1. Murajaat (Sipara Revision)</span>
           </legend>
 
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <label htmlFor="murajaat-pages" className="block text-sm font-extrabold text-slate-900">
-                Pages Revised Today
-              </label>
-              <p className="text-xs font-bold text-slate-600">
-                Daily goal: {settings.defaultMurajaatPages} pages
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="Decrease Murajaat pages"
-                onClick={() => {
-                  playTapClick(settings.soundEnabled);
-                  setMurajaatPages((p) => Math.max(0, p - 1));
-                }}
-                className="comic-btn flex h-11 w-11 items-center justify-center rounded-xl bg-white text-slate-900 hover:bg-slate-100"
-              >
-                <Minus className="h-5 w-5" aria-hidden="true" />
-              </button>
-              <input
-                id="murajaat-pages"
-                name="murajaatPages"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={murajaatPages}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value.replace(/\D/g, ''), 10);
-                  setMurajaatPages(Number.isNaN(val) ? 0 : Math.min(200, val));
-                }}
-                className="w-16 rounded-xl border-2 border-slate-900 bg-white text-center font-display text-xl font-black text-slate-900"
-              />
-              <button
-                type="button"
-                aria-label="Increase Murajaat pages"
-                onClick={() => {
-                  playTapClick(settings.soundEnabled);
-                  setMurajaatPages((p) => Math.min(200, p + 1));
-                }}
-                className="comic-btn flex h-11 w-11 items-center justify-center rounded-xl bg-sky-300 text-slate-950 hover:bg-sky-400"
-              >
-                <Plus className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </div>
+          <div className="mt-1 space-y-2">
+            <label htmlFor="murajaat-juz-select" className="block text-sm font-extrabold text-slate-900">
+              Select Juz / Sipara Revised (1–30)
+            </label>
+            <select
+              id="murajaat-juz-select"
+              name="murajaatJuz"
+              value={murajaatJuz}
+              onChange={(e) => {
+                playTapClick(settings.soundEnabled);
+                setMurajaatJuz(parseInt(e.target.value, 10));
+              }}
+              className="w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2.5 font-display text-base font-black text-slate-900"
+            >
+              {QURAN_JUZ_LIST.map((juz) => (
+                <option key={juz.number} value={juz.number}>
+                  Juz {juz.number} — {juz.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <MarkSelector
@@ -276,13 +266,27 @@ export function DailyLogForm({ settings, onSubmitMission }: DailyLogFormProps) {
             <span>3. Jadeed (New Memorization)</span>
           </legend>
 
+          {/* Current Quran Bookmark Banner */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-slate-900 bg-white px-3 py-2 shadow-comic-sm">
+            <div className="flex items-center gap-2">
+              <BookMarked className="h-4 w-4 shrink-0 text-orange-600" aria-hidden="true" />
+              <div className="text-xs font-extrabold text-slate-800">
+                <span className="text-slate-500">Current Position:</span>{' '}
+                <span className="text-slate-950">
+                  Juz {quranPosition.juz} • Surah {currentSurah.number} ({currentSurah.name}), Ayat{' '}
+                  {quranPosition.ayatNumber}/{currentSurah.totalAyats}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
             <div>
               <label htmlFor="jadeed-ayats" className="block text-sm font-extrabold text-slate-900">
                 New Ayats Memorized Today
               </label>
               <p className="text-xs font-bold text-slate-600">
-                Counts toward your Short-Term &amp; Long-Term goals!
+                Auto-calculates from your Quran Bookmark!
               </p>
             </div>
 
@@ -328,7 +332,7 @@ export function DailyLogForm({ settings, onSubmitMission }: DailyLogFormProps) {
           {/* Quick Ayat Chips */}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <span className="text-xs font-extrabold text-slate-600">Quick set:</span>
-            {[3, 5, 7, 10, 15].map((preset) => (
+            {[3, 4, 5, 7, 10].map((preset) => (
               <button
                 key={preset}
                 type="button"
@@ -347,15 +351,31 @@ export function DailyLogForm({ settings, onSubmitMission }: DailyLogFormProps) {
             ))}
           </div>
 
+          {/* Auto-Calculated Quran Range Preview */}
+          <div className="mt-3 rounded-xl border-2 border-slate-900 bg-gradient-to-r from-amber-200 to-yellow-100 px-3 py-2 text-xs font-extrabold text-slate-900">
+            {jadeedAyats > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span>
+                  ⚡ Today&apos;s Range: <strong>{advancePreview.summaryText}</strong>
+                </span>
+                <span className="rounded-lg border border-slate-900 bg-white px-2 py-0.5 text-[11px] font-black text-orange-700">
+                  Next Bookmark: {advancePreview.endSurah.name} ({advancePreview.newPosition.ayatNumber}/{advancePreview.endSurah.totalAyats})
+                </span>
+              </div>
+            ) : (
+              <span>No new Jadeed ayats selected (Bookmark stays at {currentSurah.name}, Ayat {quranPosition.ayatNumber}).</span>
+            )}
+          </div>
+
           <div className="mt-3">
             <label htmlFor="jadeed-note" className="block text-xs font-extrabold text-slate-700">
-              Surah / Page Note (optional)
+              Custom Note (optional — auto-fills Surah &amp; Ayats if blank)
             </label>
             <input
               id="jadeed-note"
               name="jadeedNote"
               type="text"
-              placeholder="e.g. Surah Al-Qalam Ayats 1-5"
+              placeholder={jadeedAyats > 0 ? advancePreview.summaryText : 'Optional note'}
               value={jadeedNote}
               onChange={(e) => setJadeedNote(e.target.value)}
               maxLength={80}

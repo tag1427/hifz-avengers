@@ -26,12 +26,12 @@ export const DEFAULT_TREATS: TreatItem[] = [
 
 export function createDemoLogs(): DailyLogEntry[] {
   const samples = [
-    { daysAgo: 6, murajaatPages: 10, murajaatMark: 8, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 9, jadeedNote: 'Surah Al-Mulk' },
-    { daysAgo: 5, murajaatPages: 10, murajaatMark: 9, juzHaliPages: 3, juzHaliMark: 8, jadeedAyats: 6, jadeedMark: 10, jadeedNote: 'Surah Al-Mulk' },
-    { daysAgo: 4, murajaatPages: 10, murajaatMark: 9, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 8, jadeedNote: 'Surah Al-Mulk' },
-    { daysAgo: 3, murajaatPages: 10, murajaatMark: 10, juzHaliPages: 4, juzHaliMark: 10, jadeedAyats: 7, jadeedMark: 9, jadeedNote: 'Surah Al-Qalam' },
-    { daysAgo: 2, murajaatPages: 10, murajaatMark: 8, juzHaliPages: 3, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 9, jadeedNote: 'Surah Al-Qalam' },
-    { daysAgo: 1, murajaatPages: 10, murajaatMark: 10, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 6, jadeedMark: 10, jadeedNote: 'Surah Al-Qalam' },
+    { daysAgo: 6, murajaatJuz: 30, murajaatPages: 10, murajaatMark: 8, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 9, jadeedNote: 'Surah Al-Mulk (Ayats 1–5)', jadeedJuz: 29, jadeedSurahNumber: 67, jadeedStartAyat: 1, jadeedEndAyat: 5 },
+    { daysAgo: 5, murajaatJuz: 29, murajaatPages: 10, murajaatMark: 9, juzHaliPages: 3, juzHaliMark: 8, jadeedAyats: 6, jadeedMark: 10, jadeedNote: 'Surah Al-Mulk (Ayats 6–11)', jadeedJuz: 29, jadeedSurahNumber: 67, jadeedStartAyat: 6, jadeedEndAyat: 11 },
+    { daysAgo: 4, murajaatJuz: 30, murajaatPages: 10, murajaatMark: 9, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 8, jadeedNote: 'Surah Al-Mulk (Ayats 12–16)', jadeedJuz: 29, jadeedSurahNumber: 67, jadeedStartAyat: 12, jadeedEndAyat: 16 },
+    { daysAgo: 3, murajaatJuz: 28, murajaatPages: 10, murajaatMark: 10, juzHaliPages: 4, juzHaliMark: 10, jadeedAyats: 7, jadeedMark: 9, jadeedNote: 'Surah Al-Mulk (Ayats 17–23)', jadeedJuz: 29, jadeedSurahNumber: 67, jadeedStartAyat: 17, jadeedEndAyat: 23 },
+    { daysAgo: 2, murajaatJuz: 29, murajaatPages: 10, murajaatMark: 8, juzHaliPages: 3, juzHaliMark: 9, jadeedAyats: 5, jadeedMark: 9, jadeedNote: 'Surah Al-Mulk (Ayats 24–28)', jadeedJuz: 29, jadeedSurahNumber: 67, jadeedStartAyat: 24, jadeedEndAyat: 28 },
+    { daysAgo: 1, murajaatJuz: 30, murajaatPages: 10, murajaatMark: 10, juzHaliPages: 4, juzHaliMark: 9, jadeedAyats: 6, jadeedMark: 10, jadeedNote: 'Surah Al-Mulk (29–30) → Al-Qalam (1–4)', jadeedJuz: 29, jadeedSurahNumber: 68, jadeedStartAyat: 1, jadeedEndAyat: 4 },
   ];
 
   return samples.map((s, idx) => {
@@ -45,6 +45,7 @@ export function createDemoLogs(): DailyLogEntry[] {
       id: `demo-log-${idx + 1}`,
       date: dStr,
       createdAt: `${dStr}T17:30:00`,
+      murajaatJuz: s.murajaatJuz,
       murajaatPages: s.murajaatPages,
       murajaatMark: s.murajaatMark,
       juzHaliPages: s.juzHaliPages,
@@ -52,6 +53,10 @@ export function createDemoLogs(): DailyLogEntry[] {
       jadeedAyats: s.jadeedAyats,
       jadeedMark: s.jadeedMark,
       jadeedNote: s.jadeedNote,
+      jadeedJuz: s.jadeedJuz,
+      jadeedSurahNumber: s.jadeedSurahNumber,
+      jadeedStartAyat: s.jadeedStartAyat,
+      jadeedEndAyat: s.jadeedEndAyat,
       xpEarned,
     };
   });
@@ -71,6 +76,11 @@ export function createDemoState(): AppState {
       defaultJuzHaliPages: 4,
       ayatsPerPage: 15,
       pagesPerSipara: 20,
+    },
+    quranPosition: {
+      juz: 29,
+      surahNumber: 68,
+      ayatNumber: 4,
     },
     xp: totalXp,
     shortTermGoal: {
@@ -116,6 +126,11 @@ export function createFreshState(): AppState {
       ayatsPerPage: 15,
       pagesPerSipara: 20,
     },
+    quranPosition: {
+      juz: 30,
+      surahNumber: 78,
+      ayatNumber: 0,
+    },
     xp: 0,
     shortTermGoal: {
       title: "This Week's Jadeed Target",
@@ -142,6 +157,7 @@ export function normalizeAppState(parsed: Partial<AppState>): AppState {
   const fallback = createDemoState();
   return {
     settings: { ...fallback.settings, ...(parsed.settings ?? {}) },
+    quranPosition: { ...fallback.quranPosition, ...(parsed.quranPosition ?? {}) },
     xp: typeof parsed.xp === 'number' ? parsed.xp : fallback.xp,
     shortTermGoal: { ...fallback.shortTermGoal, ...(parsed.shortTermGoal ?? {}) },
     longTermGoal: { ...fallback.longTermGoal, ...(parsed.longTermGoal ?? {}) },

@@ -18,6 +18,7 @@ import {
   saveAppState,
   saveServerState,
 } from './data/defaultState';
+import { advanceQuranPosition } from './data/quranMetadata';
 import type { AppState, AppTab, DailyLogEntry, HeroId, TreatItem } from './types/hifz';
 import { calculateStreak, fireHeroConfetti, getHeroRank } from './utils/hifzMath';
 import { playGrandPrizeChord, playHeroFanfare, playTapClick } from './utils/sound';
@@ -118,6 +119,8 @@ export function App() {
 
   const streak = calculateStreak(state.logs);
   const pendingTreatsCount = state.wonTreats.filter((w) => !w.delivered).length;
+  const lastMurajaatJuz =
+    state.logs.length > 0 ? (state.logs[state.logs.length - 1].murajaatJuz ?? 30) : 30;
 
   const handleSubmitMission = (payload: DailyMissionPayload) => {
     const xpEarned =
@@ -126,17 +129,26 @@ export function App() {
       payload.jadeedMark * 10 +
       payload.jadeedAyats * 12;
 
+    const advanceResult = advanceQuranPosition(state.quranPosition, payload.jadeedAyats);
+
     const entry: DailyLogEntry = {
       id: `log-${Date.now()}`,
       date: payload.date,
       createdAt: new Date().toISOString(),
+      murajaatJuz: payload.murajaatJuz,
       murajaatPages: payload.murajaatPages,
       murajaatMark: payload.murajaatMark,
       juzHaliPages: payload.juzHaliPages,
       juzHaliMark: payload.juzHaliMark,
       jadeedAyats: payload.jadeedAyats,
       jadeedMark: payload.jadeedMark,
-      jadeedNote: payload.jadeedNote || undefined,
+      jadeedNote:
+        payload.jadeedNote ||
+        (payload.jadeedAyats > 0 ? advanceResult.summaryText : undefined),
+      jadeedJuz: advanceResult.newPosition.juz,
+      jadeedSurahNumber: advanceResult.endSurah.number,
+      jadeedStartAyat: advanceResult.startAyat,
+      jadeedEndAyat: advanceResult.endAyat,
       xpEarned,
     };
 
@@ -160,6 +172,7 @@ export function App() {
     setState((prev) => ({
       ...prev,
       xp: prev.xp + xpEarned,
+      quranPosition: advanceQuranPosition(prev.quranPosition, payload.jadeedAyats).newPosition,
       logs: [...prev.logs, entry],
       shortTermGoal: {
         ...prev.shortTermGoal,
@@ -301,12 +314,18 @@ export function App() {
           {activeTab === 'home' && (
             <DailyLogForm
               settings={state.settings}
+              quranPosition={state.quranPosition}
+              lastMurajaatJuz={lastMurajaatJuz}
               onSubmitMission={handleSubmitMission}
             />
           )}
 
           {activeTab === 'trends' && (
-            <TrendsAndForecast logs={state.logs} settings={state.settings} />
+            <TrendsAndForecast
+              logs={state.logs}
+              settings={state.settings}
+              quranPosition={state.quranPosition}
+            />
           )}
 
           {activeTab === 'vault' && (
@@ -391,7 +410,7 @@ export function App() {
             }`}
           >
             <TrendingUp className="h-5 w-5" aria-hidden="true" />
-            <span className="mt-0.5">Trends</span>
+            <span className="mt-0.5">Progress</span>
           </button>
 
           <button

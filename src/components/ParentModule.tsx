@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import {
+  BookMarked,
   Check,
   Edit3,
   Gift,
@@ -13,6 +14,7 @@ import {
   Trophy,
   Unlock,
 } from 'lucide-react';
+import { QURAN_JUZ_LIST, QURAN_SURAHS, getSurahInfo } from '../data/quranMetadata';
 import type { AppState, LongTermGoal, TreatItem } from '../types/hifz';
 
 interface ParentModuleProps {
@@ -49,6 +51,11 @@ export function ParentModule({
 }: ParentModuleProps) {
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
+
+  // Quran Bookmark (current position) local form
+  const [qpJuz, setQpJuz] = useState<number>(state.quranPosition.juz);
+  const [qpSurah, setQpSurah] = useState<number>(state.quranPosition.surahNumber);
+  const [qpAyat, setQpAyat] = useState<string>(String(state.quranPosition.ayatNumber));
 
   // Short-term goal local form
   const [stTitle, setStTitle] = useState<string>(state.shortTermGoal.title);
@@ -102,6 +109,9 @@ export function ParentModule({
       setPinError('');
       setPinInput('');
       // Sync local drafts when entering Parent HQ
+      setQpJuz(state.quranPosition.juz);
+      setQpSurah(state.quranPosition.surahNumber);
+      setQpAyat(String(state.quranPosition.ayatNumber));
       setStTitle(state.shortTermGoal.title);
       setStTarget(String(state.shortTermGoal.targetAyats));
       setStCurrent(String(state.shortTermGoal.currentAyats));
@@ -277,6 +287,26 @@ export function ParentModule({
     showSavedToast('Treat removed from wheel.');
   };
 
+  const selectedSurahInfo = getSurahInfo(qpSurah);
+
+  const handleSaveQuranPosition = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const maxAyat = selectedSurahInfo.totalAyats;
+    const parsedAyat = Math.max(0, Math.min(maxAyat, parseInt(qpAyat, 10) || 0));
+    setQpAyat(String(parsedAyat));
+    onUpdateState((prev) => ({
+      ...prev,
+      quranPosition: {
+        juz: qpJuz,
+        surahNumber: qpSurah,
+        ayatNumber: parsedAyat,
+      },
+    }));
+    showSavedToast(
+      `Quran Bookmark set to Juz ${qpJuz} • Surah ${selectedSurahInfo.name}, Ayat ${parsedAyat}!`
+    );
+  };
+
   const handleSaveSettings = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const sanitizedPin = /^\d{4}$/.test(newPin) ? newPin : state.settings.parentPin;
@@ -325,6 +355,94 @@ export function ParentModule({
           ✅ {savedNotice}
         </div>
       )}
+
+      {/* 0. Quran Bookmark (Current Juz, Surah & Ayat) */}
+      <section aria-labelledby="qp-editor-heading" className="comic-card bg-gradient-to-br from-amber-50 via-white to-orange-50 p-4 sm:p-5">
+        <div className="flex items-center gap-2">
+          <BookMarked className="h-5 w-5 text-orange-600" aria-hidden="true" />
+          <h3 id="qp-editor-heading" className="font-comic text-xl tracking-wide text-slate-900">
+            Quran Bookmark (Current Juz, Surah &amp; Ayat)
+          </h3>
+        </div>
+        <p className="mt-1 text-xs font-bold text-slate-600">
+          Set where your child currently is in Jadeed. When he logs new ayats (e.g. 4 ayats), the app auto-calculates from this exact spot!
+        </p>
+
+        <form onSubmit={handleSaveQuranPosition} className="mt-3 space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="qp-surah" className="block text-xs font-black uppercase text-slate-700">
+                Current Surah (1–114)
+              </label>
+              <select
+                id="qp-surah"
+                value={qpSurah}
+                onChange={(e) => {
+                  const num = parseInt(e.target.value, 10);
+                  const info = getSurahInfo(num);
+                  setQpSurah(num);
+                  setQpJuz(info.juz);
+                  const currentNum = parseInt(qpAyat, 10) || 0;
+                  if (currentNum > info.totalAyats) {
+                    setQpAyat(String(info.totalAyats));
+                  }
+                }}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                {QURAN_SURAHS.map((s) => (
+                  <option key={s.number} value={s.number}>
+                    {s.number}. {s.name} ({s.totalAyats} Ayats)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="qp-juz" className="block text-xs font-black uppercase text-slate-700">
+                Current Juz / Sipara (1–30)
+              </label>
+              <select
+                id="qp-juz"
+                value={qpJuz}
+                onChange={(e) => setQpJuz(parseInt(e.target.value, 10))}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                {QURAN_JUZ_LIST.map((j) => (
+                  <option key={j.number} value={j.number}>
+                    Juz {j.number} — {j.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-40">
+              <label htmlFor="qp-ayat" className="block text-xs font-black uppercase text-slate-700">
+                Ayat Reached (0–{selectedSurahInfo.totalAyats})
+              </label>
+              <input
+                id="qp-ayat"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                required
+                value={qpAyat}
+                onChange={(e) => setQpAyat(e.target.value.replace(/\D/g, ''))}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 font-display text-base font-black text-orange-600"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="comic-btn inline-flex items-center gap-1.5 rounded-xl bg-orange-500 px-4 py-2.5 text-xs font-black uppercase text-white hover:bg-orange-600"
+            >
+              <Save className="h-4 w-4" aria-hidden="true" />
+              <span>Save Quran Bookmark</span>
+            </button>
+          </div>
+        </form>
+      </section>
 
       {/* 1. Short-Term Goal Editor */}
       <section aria-labelledby="st-editor-heading" className="comic-card bg-white p-4 sm:p-5">
@@ -864,7 +982,7 @@ export function ParentModule({
                     className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold"
                   >
                     <span className="truncate">
-                      {log.date}: +{log.jadeedAyats} ayats • Marks {log.murajaatMark}/{log.juzHaliMark}/{log.jadeedMark}
+                      {log.date}: {log.murajaatJuz ? `Juz ${log.murajaatJuz} • ` : ''}+{log.jadeedAyats} ayats • Marks {log.murajaatMark}/{log.juzHaliMark}/{log.jadeedMark}
                     </span>
                     <button
                       type="button"
