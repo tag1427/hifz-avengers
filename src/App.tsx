@@ -18,7 +18,7 @@ import {
   saveAppState,
   saveServerState,
 } from './data/defaultState';
-import { advanceQuranPosition } from './data/quranMetadata';
+import { advanceQuranPosition, calculateSiparaProgress } from './data/quranMetadata';
 import type { AppState, AppTab, DailyLogEntry, HeroId, TreatItem } from './types/hifz';
 import { calculateStreak, fireHeroConfetti, getHeroRank } from './utils/hifzMath';
 import { playGrandPrizeChord, playHeroFanfare, playTapClick } from './utils/sound';
@@ -129,7 +129,15 @@ export function App() {
       payload.jadeedMark * 10 +
       payload.jadeedAyats * 12;
 
-    const advanceResult = advanceQuranPosition(state.quranPosition, payload.jadeedAyats);
+    const effectiveDirection =
+      state.longTermGoal.mode !== 'custom'
+        ? (state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse')
+        : (state.quranPosition.surahDirection ?? 'reverse');
+
+    const advanceResult = advanceQuranPosition(
+      { ...state.quranPosition, surahDirection: effectiveDirection },
+      payload.jadeedAyats
+    );
 
     const entry: DailyLogEntry = {
       id: `log-${Date.now()}`,
@@ -161,38 +169,75 @@ export function App() {
     const wheelUnlockedNow =
       newShortCurrent >= state.shortTermGoal.targetAyats || state.shortTermGoal.bonusSpins > 0;
 
+    const isSiparaMode = state.longTermGoal.mode !== 'custom';
+    const siparaAfter = isSiparaMode
+      ? calculateSiparaProgress(
+          state.longTermGoal.targetJuz ?? advanceResult.newPosition.juz,
+          advanceResult.newPosition,
+          state.longTermGoal.surahDirection ?? effectiveDirection
+        )
+      : null;
+
     const longDelta =
       state.longTermGoal.unit === 'pages'
         ? payload.jadeedAyats / Math.max(1, state.settings.ayatsPerPage)
         : payload.jadeedAyats;
-    const newLongCurrent = Number((state.longTermGoal.currentValue + longDelta).toFixed(1));
-    const grandPrizeUnlockedNow =
-      newLongCurrent >= state.longTermGoal.targetValue && !state.longTermGoal.claimed;
+    const newLongCurrent = siparaAfter
+      ? siparaAfter.completedAyats
+      : Number((state.longTermGoal.currentValue + longDelta).toFixed(1));
+    const grandPrizeUnlockedNow = siparaAfter
+      ? siparaAfter.isComplete && !state.longTermGoal.claimed
+      : newLongCurrent >= state.longTermGoal.targetValue && !state.longTermGoal.claimed;
 
-    setState((prev) => ({
-      ...prev,
-      xp: prev.xp + xpEarned,
-      quranPosition: advanceQuranPosition(prev.quranPosition, payload.jadeedAyats).newPosition,
-      logs: [...prev.logs, entry],
-      shortTermGoal: {
-        ...prev.shortTermGoal,
-        currentAyats: prev.shortTermGoal.currentAyats + payload.jadeedAyats,
-      },
-      longTermGoal: {
-        ...prev.longTermGoal,
-        currentValue: Number(
-          (
-            prev.longTermGoal.currentValue +
-            (prev.longTermGoal.unit === 'pages'
-              ? payload.jadeedAyats / Math.max(1, prev.settings.ayatsPerPage)
-              : payload.jadeedAyats)
-          ).toFixed(1)
-        ),
-      },
-    }));
+    setState((prev) => {
+      const prevDir =
+        prev.longTermGoal.mode !== 'custom'
+          ? (prev.longTermGoal.surahDirection ?? prev.quranPosition.surahDirection ?? 'reverse')
+          : (prev.quranPosition.surahDirection ?? 'reverse');
+      const nextPos = advanceQuranPosition(
+        { ...prev.quranPosition, surahDirection: prevDir },
+        payload.jadeedAyats
+      ).newPosition;
+      const prevSipara =
+        prev.longTermGoal.mode !== 'custom'
+          ? calculateSiparaProgress(
+              prev.longTermGoal.targetJuz ?? nextPos.juz,
+              nextPos,
+              prev.longTermGoal.surahDirection ?? prevDir
+            )
+          : null;
+
+      return {
+        ...prev,
+        xp: prev.xp + xpEarned,
+        quranPosition: nextPos,
+        logs: [...prev.logs, entry],
+        shortTermGoal: {
+          ...prev.shortTermGoal,
+          currentAyats: prev.shortTermGoal.currentAyats + payload.jadeedAyats,
+        },
+        longTermGoal: prevSipara
+          ? {
+              ...prev.longTermGoal,
+              targetValue: prevSipara.totalAyats,
+              currentValue: prevSipara.completedAyats,
+            }
+          : {
+              ...prev.longTermGoal,
+              currentValue: Number(
+                (
+                  prev.longTermGoal.currentValue +
+                  (prev.longTermGoal.unit === 'pages'
+                    ? payload.jadeedAyats / Math.max(1, prev.settings.ayatsPerPage)
+                    : payload.jadeedAyats)
+                ).toFixed(1)
+              ),
+            },
+      };
+    });
 
     const avgMark = (payload.murajaatMark + payload.juzHaliMark + payload.jadeedMark) / 3;
-    fireHeroConfetti(avgMark >= 9 || wheelUnlockedNow ? 'grand' : 'normal');
+    fireHeroConfetti(avgMark >= 9 || wheelUnlockedNow || grandPrizeUnlockedNow ? 'grand' : 'normal');
     playHeroFanfare(state.settings.soundEnabled);
 
     setCelebration({
@@ -305,6 +350,7 @@ export function App() {
           <GoalProgressBanner
             shortTermGoal={state.shortTermGoal}
             longTermGoal={state.longTermGoal}
+            quranPosition={state.quranPosition}
             onOpenWheel={() => setIsWheelOpen(true)}
             onOpenGrandPrize={() => setIsGrandPrizeOpen(true)}
           />

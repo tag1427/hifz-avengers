@@ -1,9 +1,11 @@
 import { Gift, Sparkles, Target, Trophy } from 'lucide-react';
-import type { LongTermGoal, ShortTermGoal } from '../types/hifz';
+import { calculateSiparaProgress } from '../data/quranMetadata';
+import type { LongTermGoal, QuranPosition, ShortTermGoal } from '../types/hifz';
 
 interface GoalProgressBannerProps {
   shortTermGoal: ShortTermGoal;
   longTermGoal: LongTermGoal;
+  quranPosition: QuranPosition;
   onOpenWheel: () => void;
   onOpenGrandPrize: () => void;
 }
@@ -11,6 +13,7 @@ interface GoalProgressBannerProps {
 export function GoalProgressBanner({
   shortTermGoal,
   longTermGoal,
+  quranPosition,
   onOpenWheel,
   onOpenGrandPrize,
 }: GoalProgressBannerProps) {
@@ -20,12 +23,38 @@ export function GoalProgressBanner({
   const shortRemaining = Math.max(0, shortTarget - shortCurrent);
   const wheelUnlocked = shortCurrent >= shortTarget || shortTermGoal.bonusSpins > 0;
 
-  const longTarget = Math.max(1, longTermGoal.targetValue);
-  const longCurrent = Math.max(0, longTermGoal.currentValue);
-  const longPct = Math.min(100, Math.round((longCurrent / longTarget) * 100));
-  const longRemaining = Math.max(0, longTarget - longCurrent);
-  const longUnitLabel = longTermGoal.unit === 'pages' ? 'Pages' : 'Ayats';
-  const grandPrizeReady = longCurrent >= longTarget && !longTermGoal.claimed;
+  const isSiparaMode = longTermGoal.mode !== 'custom';
+  const siparaProgress = isSiparaMode
+    ? calculateSiparaProgress(
+        longTermGoal.targetJuz ?? quranPosition.juz,
+        quranPosition,
+        longTermGoal.surahDirection ?? quranPosition.surahDirection ?? 'reverse'
+      )
+    : null;
+
+  const longTarget = siparaProgress
+    ? Math.max(1, siparaProgress.totalAyats)
+    : Math.max(1, longTermGoal.targetValue);
+  const longCurrent = siparaProgress
+    ? siparaProgress.completedAyats
+    : Math.max(0, longTermGoal.currentValue);
+  const longPct = siparaProgress
+    ? siparaProgress.percent
+    : longCurrent >= longTarget
+      ? 100
+      : Math.min(99, Math.round((longCurrent / longTarget) * 100));
+  const longRemaining = siparaProgress
+    ? siparaProgress.remainingAyats
+    : Math.max(0, longTarget - longCurrent);
+  const longUnitLabel = siparaProgress
+    ? 'Ayats'
+    : longTermGoal.unit === 'pages'
+      ? 'Pages'
+      : 'Ayats';
+  const isLongComplete = siparaProgress
+    ? siparaProgress.isComplete
+    : longCurrent >= longTarget;
+  const grandPrizeReady = isLongComplete && !longTermGoal.claimed;
 
   return (
     <section aria-label="Goal Progress Trackers" className="grid gap-3 sm:grid-cols-2">
@@ -123,14 +152,67 @@ export function GoalProgressBanner({
             value={Math.min(longCurrent, longTarget)}
           />
           <div className="mt-1.5 flex items-center justify-between text-xs font-extrabold text-slate-700">
-            <span>{longPct}% Complete</span>
             <span>
-              {longCurrent >= longTarget
+              {longPct}% Complete
+              {siparaProgress ? ` · Juz ${siparaProgress.juz}` : ''}
+            </span>
+            <span>
+              {isLongComplete
                 ? 'QUEST CONQUERED! ⚡'
                 : `${longRemaining} ${longUnitLabel} left`}
             </span>
           </div>
         </div>
+
+        {siparaProgress && (
+          <div className="mt-2.5 rounded-xl border-2 border-indigo-200 bg-white/85 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-black text-indigo-950">
+              <span>
+                {siparaProgress.direction === 'reverse'
+                  ? '⏪ Reverse Surah Trail'
+                  : '⏩ Forward Surah Trail'}
+              </span>
+              <span className="text-purple-700">
+                🏁 Finishes on {siparaProgress.finishingSurah.number}. {siparaProgress.finishingSurah.name}
+              </span>
+            </div>
+            <div
+              className={`mt-1.5 flex gap-1.5 ${
+                siparaProgress.surahStatuses.length > 10
+                  ? 'overflow-x-auto pb-1'
+                  : 'flex-wrap'
+              }`}
+            >
+              {siparaProgress.surahStatuses.map(({ surah, completedAyats, status }) => {
+                const isFinal = surah.number === siparaProgress.finishingSurah.number;
+                const badgeClass =
+                  status === 'done'
+                    ? 'border-emerald-700 bg-emerald-100 text-emerald-900'
+                    : status === 'current'
+                      ? 'border-amber-600 bg-amber-100 text-amber-950 ring-2 ring-amber-300'
+                      : 'border-slate-300 bg-slate-50 text-slate-600';
+                const icon =
+                  status === 'done' ? '✅' : status === 'current' ? '🔥' : isFinal ? '🏁' : '⏳';
+                return (
+                  <span
+                    key={surah.number}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-extrabold ${badgeClass}`}
+                  >
+                    <span>{icon}</span>
+                    <span>
+                      {surah.number}. {surah.name}
+                    </span>
+                    {status === 'current' && (
+                      <span className="text-[10px] font-black text-amber-800">
+                        ({completedAyats}/{surah.totalAyats})
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="mt-3">
           {grandPrizeReady ? (

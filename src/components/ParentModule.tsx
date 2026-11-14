@@ -14,8 +14,8 @@ import {
   Trophy,
   Unlock,
 } from 'lucide-react';
-import { QURAN_JUZ_LIST, QURAN_SURAHS, getSurahInfo } from '../data/quranMetadata';
-import type { AppState, LongTermGoal, TreatItem } from '../types/hifz';
+import { QURAN_JUZ_LIST, QURAN_SURAHS, calculateSiparaProgress, getSurahInfo } from '../data/quranMetadata';
+import type { AppState, LongTermGoal, SurahDirection, TreatItem } from '../types/hifz';
 
 interface ParentModuleProps {
   state: AppState;
@@ -56,6 +56,9 @@ export function ParentModule({
   const [qpJuz, setQpJuz] = useState<number>(state.quranPosition.juz);
   const [qpSurah, setQpSurah] = useState<number>(state.quranPosition.surahNumber);
   const [qpAyat, setQpAyat] = useState<string>(String(state.quranPosition.ayatNumber));
+  const [qpDirection, setQpDirection] = useState<SurahDirection>(
+    state.quranPosition.surahDirection ?? 'reverse'
+  );
 
   // Short-term goal local form
   const [stTitle, setStTitle] = useState<string>(state.shortTermGoal.title);
@@ -64,6 +67,13 @@ export function ParentModule({
 
   // Long-term goal local form
   const [ltTitle, setLtTitle] = useState<string>(state.longTermGoal.title);
+  const [ltMode, setLtMode] = useState<'sipara' | 'custom'>(state.longTermGoal.mode ?? 'sipara');
+  const [ltTargetJuz, setLtTargetJuz] = useState<number>(
+    state.longTermGoal.targetJuz ?? state.quranPosition.juz
+  );
+  const [ltDirection, setLtDirection] = useState<SurahDirection>(
+    state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse'
+  );
   const [ltUnit, setLtUnit] = useState<'ayats' | 'pages'>(state.longTermGoal.unit);
   const [ltTarget, setLtTarget] = useState<string>(String(state.longTermGoal.targetValue));
   const [ltCurrent, setLtCurrent] = useState<string>(String(state.longTermGoal.currentValue));
@@ -112,10 +122,16 @@ export function ParentModule({
       setQpJuz(state.quranPosition.juz);
       setQpSurah(state.quranPosition.surahNumber);
       setQpAyat(String(state.quranPosition.ayatNumber));
+      setQpDirection(state.quranPosition.surahDirection ?? 'reverse');
       setStTitle(state.shortTermGoal.title);
       setStTarget(String(state.shortTermGoal.targetAyats));
       setStCurrent(String(state.shortTermGoal.currentAyats));
       setLtTitle(state.longTermGoal.title);
+      setLtMode(state.longTermGoal.mode ?? 'sipara');
+      setLtTargetJuz(state.longTermGoal.targetJuz ?? state.quranPosition.juz);
+      setLtDirection(
+        state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse'
+      );
       setLtUnit(state.longTermGoal.unit);
       setLtTarget(String(state.longTermGoal.targetValue));
       setLtCurrent(String(state.longTermGoal.currentValue));
@@ -225,21 +241,42 @@ export function ParentModule({
 
   const handleSaveLongTerm = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const target = Math.max(1, parseInt(ltTarget, 10) || 300);
-    const current = Math.max(0, parseInt(ltCurrent, 10) || 0);
-    const updatedLongTerm: LongTermGoal = {
-      title: ltTitle.trim() || 'Long-Term Quran Quest',
-      unit: ltUnit,
-      targetValue: target,
-      currentValue: current,
-      grandTreatLabel: ltTreatLabel.trim() || 'Special Grand Treat',
-      grandTreatEmoji: ltTreatEmoji.trim() || '🏆',
-      claimed: ltClaimed,
-    };
+    const siparaCalc = calculateSiparaProgress(ltTargetJuz, state.quranPosition, ltDirection);
+    const updatedLongTerm: LongTermGoal =
+      ltMode === 'sipara'
+        ? {
+            title: ltTitle.trim() || `Complete Juz ${ltTargetJuz} (${siparaCalc.juzInfo.name})`,
+            mode: 'sipara',
+            targetJuz: ltTargetJuz,
+            surahDirection: ltDirection,
+            unit: 'ayats',
+            targetValue: siparaCalc.totalAyats,
+            currentValue: siparaCalc.completedAyats,
+            grandTreatLabel: ltTreatLabel.trim() || 'Special Grand Treat',
+            grandTreatEmoji: ltTreatEmoji.trim() || '🏆',
+            claimed: ltClaimed,
+          }
+        : {
+            title: ltTitle.trim() || 'Long-Term Quran Quest',
+            mode: 'custom',
+            unit: ltUnit,
+            targetValue: Math.max(1, parseInt(ltTarget, 10) || 300),
+            currentValue: Math.max(0, parseInt(ltCurrent, 10) || 0),
+            grandTreatLabel: ltTreatLabel.trim() || 'Special Grand Treat',
+            grandTreatEmoji: ltTreatEmoji.trim() || '🏆',
+            claimed: ltClaimed,
+          };
     onUpdateState((prev) => ({
       ...prev,
       longTermGoal: updatedLongTerm,
+      quranPosition:
+        ltMode === 'sipara'
+          ? { ...prev.quranPosition, surahDirection: ltDirection }
+          : prev.quranPosition,
     }));
+    if (ltMode === 'sipara') {
+      setQpDirection(ltDirection);
+    }
     showSavedToast('Long-term goal & Grand Treat saved!');
   };
 
@@ -294,16 +331,38 @@ export function ParentModule({
     const maxAyat = selectedSurahInfo.totalAyats;
     const parsedAyat = Math.max(0, Math.min(maxAyat, parseInt(qpAyat, 10) || 0));
     setQpAyat(String(parsedAyat));
-    onUpdateState((prev) => ({
-      ...prev,
-      quranPosition: {
+    onUpdateState((prev) => {
+      const nextPos = {
         juz: qpJuz,
         surahNumber: qpSurah,
         ayatNumber: parsedAyat,
-      },
-    }));
+        surahDirection: qpDirection,
+      };
+      if (prev.longTermGoal.mode !== 'custom') {
+        const recalculated = calculateSiparaProgress(
+          prev.longTermGoal.targetJuz ?? qpJuz,
+          nextPos,
+          qpDirection
+        );
+        return {
+          ...prev,
+          quranPosition: nextPos,
+          longTermGoal: {
+            ...prev.longTermGoal,
+            surahDirection: qpDirection,
+            targetValue: recalculated.totalAyats,
+            currentValue: recalculated.completedAyats,
+          },
+        };
+      }
+      return {
+        ...prev,
+        quranPosition: nextPos,
+      };
+    });
+    setLtDirection(qpDirection);
     showSavedToast(
-      `Quran Bookmark set to Juz ${qpJuz} • Surah ${selectedSurahInfo.name}, Ayat ${parsedAyat}!`
+      `Quran Bookmark set to Juz ${qpJuz} • Surah ${selectedSurahInfo.name}, Ayat ${parsedAyat} (${qpDirection === 'reverse' ? 'Backwards Surah order' : 'Forward Surah order'})!`
     );
   };
 
@@ -417,7 +476,7 @@ export function ParentModule({
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-40">
+            <div className="w-36">
               <label htmlFor="qp-ayat" className="block text-xs font-black uppercase text-slate-700">
                 Ayat Reached (0–{selectedSurahInfo.totalAyats})
               </label>
@@ -431,6 +490,21 @@ export function ParentModule({
                 onChange={(e) => setQpAyat(e.target.value.replace(/\D/g, ''))}
                 className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 font-display text-base font-black text-orange-600"
               />
+            </div>
+
+            <div className="min-w-[200px] flex-1">
+              <label htmlFor="qp-direction" className="block text-xs font-black uppercase text-slate-700">
+                Memorization Order
+              </label>
+              <select
+                id="qp-direction"
+                value={qpDirection}
+                onChange={(e) => setQpDirection(e.target.value as SurahDirection)}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                <option value="reverse">⏪ Backwards by Surah (e.g. 51 → 46)</option>
+                <option value="forward">⏩ Forward by Surah (e.g. 46 → 51)</option>
+              </select>
             </div>
 
             <button
@@ -703,6 +777,42 @@ export function ParentModule({
 
         <form onSubmit={handleSaveLongTerm} className="mt-3 space-y-3">
           <div>
+            <span className="block text-xs font-black uppercase text-slate-700">
+              Goal Type
+            </span>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLtMode('sipara');
+                  if (!ltTitle.trim() || ltTitle === 'Long-Term Quran Quest') {
+                    const info = calculateSiparaProgress(ltTargetJuz, state.quranPosition, ltDirection);
+                    setLtTitle(`Complete Juz ${ltTargetJuz} (${info.juzInfo.name})`);
+                  }
+                }}
+                className={`rounded-xl border-2 border-slate-900 px-3 py-2 text-xs font-black uppercase transition ${
+                  ltMode === 'sipara'
+                    ? 'bg-purple-600 text-white shadow-comic-sm'
+                    : 'bg-slate-50 text-slate-700 hover:bg-purple-50'
+                }`}
+              >
+                📖 Complete a Sipara / Juz
+              </button>
+              <button
+                type="button"
+                onClick={() => setLtMode('custom')}
+                className={`rounded-xl border-2 border-slate-900 px-3 py-2 text-xs font-black uppercase transition ${
+                  ltMode === 'custom'
+                    ? 'bg-purple-600 text-white shadow-comic-sm'
+                    : 'bg-slate-50 text-slate-700 hover:bg-purple-50'
+                }`}
+              >
+                ✏️ Custom Ayats / Pages
+              </button>
+            </div>
+          </div>
+
+          <div>
             <label htmlFor="lt-title" className="block text-xs font-black uppercase text-slate-700">
               Long-Term Quest Title
             </label>
@@ -716,52 +826,143 @@ export function ParentModule({
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5">
-            <div>
-              <label htmlFor="lt-unit" className="block text-xs font-black uppercase text-slate-700">
-                Unit
-              </label>
-              <select
-                id="lt-unit"
-                value={ltUnit}
-                onChange={(e) => setLtUnit(e.target.value as 'ayats' | 'pages')}
-                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-2 py-2 text-sm font-bold"
-              >
-                <option value="ayats">Ayats</option>
-                <option value="pages">Pages</option>
-              </select>
+          {ltMode === 'sipara' ? (
+            (() => {
+              const preview = calculateSiparaProgress(
+                ltTargetJuz,
+                state.quranPosition,
+                ltDirection
+              );
+              const curSurah = getSurahInfo(state.quranPosition.surahNumber);
+              return (
+                <div className="space-y-2.5 rounded-2xl border-2 border-purple-300 bg-purple-50/70 p-3">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="lt-juz" className="block text-xs font-black uppercase text-slate-700">
+                        Select Sipara / Juz (1–30)
+                      </label>
+                      <select
+                        id="lt-juz"
+                        value={ltTargetJuz}
+                        onChange={(e) => {
+                          const nextJuz = Number(e.target.value);
+                          setLtTargetJuz(nextJuz);
+                          const info = calculateSiparaProgress(
+                            nextJuz,
+                            state.quranPosition,
+                            ltDirection
+                          );
+                          if (
+                            !ltTitle.trim() ||
+                            ltTitle.startsWith('Complete Juz ') ||
+                            ltTitle.startsWith('Conquer Juz ') ||
+                            ltTitle === 'Complete 1 Full Sipara (Juz)'
+                          ) {
+                            setLtTitle(`Complete Juz ${nextJuz} (${info.juzInfo.name})`);
+                          }
+                        }}
+                        className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                      >
+                        {QURAN_JUZ_LIST.map((j) => (
+                          <option key={j.number} value={j.number}>
+                            Juz {j.number} — {j.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="lt-direction"
+                        className="block text-xs font-black uppercase text-slate-700"
+                      >
+                        Surah Direction in Juz
+                      </label>
+                      <select
+                        id="lt-direction"
+                        value={ltDirection}
+                        onChange={(e) => setLtDirection(e.target.value as SurahDirection)}
+                        className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                      >
+                        <option value="reverse">
+                          ⏪ Backwards ({preview.lastSurahOfJuz.number}. {preview.lastSurahOfJuz.name} → {preview.firstSurahOfJuz.number}. {preview.firstSurahOfJuz.name})
+                        </option>
+                        <option value="forward">
+                          ⏩ Forward ({preview.firstSurahOfJuz.number}. {preview.firstSurahOfJuz.name} → {preview.lastSurahOfJuz.number}. {preview.lastSurahOfJuz.name})
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border-2 border-slate-900 bg-white p-2.5 text-xs font-bold text-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-1">
+                      <span>
+                        📍 Bookmark: Juz {state.quranPosition.juz} • {curSurah.number}. {curSurah.name} (Ayat{' '}
+                        {state.quranPosition.ayatNumber})
+                      </span>
+                      <span className="font-display text-sm font-black text-purple-700">
+                        {preview.completedAyats}/{preview.totalAyats} Ayats ({preview.percent}%)
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] font-extrabold text-indigo-800">
+                      🏁 Sipara completion is achieved when he finishes{' '}
+                      <span className="underline">
+                        Surah {preview.finishingSurah.number}. {preview.finishingSurah.name}
+                      </span>{' '}
+                      (Ayat {preview.finishingSurah.totalAyats}).
+                    </p>
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <label htmlFor="lt-unit" className="block text-xs font-black uppercase text-slate-700">
+                  Unit
+                </label>
+                <select
+                  id="lt-unit"
+                  value={ltUnit}
+                  onChange={(e) => setLtUnit(e.target.value as 'ayats' | 'pages')}
+                  className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-2 py-2 text-sm font-bold"
+                >
+                  <option value="ayats">Ayats</option>
+                  <option value="pages">Pages</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="lt-target" className="block text-xs font-black uppercase text-slate-700">
+                  Target
+                </label>
+                <input
+                  id="lt-target"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  required
+                  value={ltTarget}
+                  onChange={(e) => setLtTarget(e.target.value.replace(/\D/g, ''))}
+                  className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 font-display text-base font-black"
+                />
+              </div>
+              <div>
+                <label htmlFor="lt-current" className="block text-xs font-black uppercase text-slate-700">
+                  Current
+                </label>
+                <input
+                  id="lt-current"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  required
+                  value={ltCurrent}
+                  onChange={(e) => setLtCurrent(e.target.value.replace(/\D/g, ''))}
+                  className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 font-display text-base font-black"
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="lt-target" className="block text-xs font-black uppercase text-slate-700">
-                Target
-              </label>
-              <input
-                id="lt-target"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                required
-                value={ltTarget}
-                onChange={(e) => setLtTarget(e.target.value.replace(/\D/g, ''))}
-                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 font-display text-base font-black"
-              />
-            </div>
-            <div>
-              <label htmlFor="lt-current" className="block text-xs font-black uppercase text-slate-700">
-                Current
-              </label>
-              <input
-                id="lt-current"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                required
-                value={ltCurrent}
-                onChange={(e) => setLtCurrent(e.target.value.replace(/\D/g, ''))}
-                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 font-display text-base font-black"
-              />
-            </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-[1fr_5rem] gap-2.5">
             <div>

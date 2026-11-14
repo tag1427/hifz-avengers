@@ -12,10 +12,13 @@ export interface HeroTheme {
   badgeBg: string;
 }
 
+export type SurahDirection = 'reverse' | 'forward';
+
 export interface QuranPosition {
   juz: number; // 1-30
   surahNumber: number; // 1-114
   ayatNumber: number; // 0 = start of surah, 1..totalAyats
+  surahDirection?: SurahDirection;
 }
 
 export interface DailyLogEntry {
@@ -63,6 +66,9 @@ export interface ShortTermGoal {
 
 export interface LongTermGoal {
   title: string;
+  mode?: 'sipara' | 'custom';
+  targetJuz?: number;
+  surahDirection?: SurahDirection;
   unit: 'ayats' | 'pages';
   targetValue: number;
   currentValue: number;

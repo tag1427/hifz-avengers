@@ -78,9 +78,10 @@ export function createDemoState(): AppState {
       pagesPerSipara: 20,
     },
     quranPosition: {
-      juz: 29,
-      surahNumber: 68,
-      ayatNumber: 4,
+      juz: 26,
+      surahNumber: 50,
+      ayatNumber: 15,
+      surahDirection: 'reverse',
     },
     xp: totalXp,
     shortTermGoal: {
@@ -90,10 +91,13 @@ export function createDemoState(): AppState {
       bonusSpins: 0,
     },
     longTermGoal: {
-      title: 'Conquer Juz 29 (Sipara Mission)',
+      title: 'Complete Juz 26 (Ha Meem)',
+      mode: 'sipara',
+      targetJuz: 26,
+      surahDirection: 'reverse',
       unit: 'ayats',
-      targetValue: 300,
-      currentValue: 135,
+      targetValue: 225,
+      currentValue: 75,
       grandTreatLabel: 'LEGO Marvel Avengers Quinjet',
       grandTreatEmoji: '🚀',
       claimed: false,
@@ -128,8 +132,9 @@ export function createFreshState(): AppState {
     },
     quranPosition: {
       juz: 30,
-      surahNumber: 78,
+      surahNumber: 114,
       ayatNumber: 0,
+      surahDirection: 'reverse',
     },
     xp: 0,
     shortTermGoal: {
@@ -139,9 +144,12 @@ export function createFreshState(): AppState {
       bonusSpins: 0,
     },
     longTermGoal: {
-      title: 'Complete 1 Full Sipara (Juz)',
+      title: 'Complete Juz 30 (Amma)',
+      mode: 'sipara',
+      targetJuz: 30,
+      surahDirection: 'reverse',
       unit: 'ayats',
-      targetValue: 300,
+      targetValue: 564,
       currentValue: 0,
       grandTreatLabel: 'Special Family Outing & Marvel Gift',
       grandTreatEmoji: '🏆',
@@ -155,12 +163,24 @@ export function createFreshState(): AppState {
 
 export function normalizeAppState(parsed: Partial<AppState>): AppState {
   const fallback = createDemoState();
+  const mergedPosition = {
+    ...fallback.quranPosition,
+    ...(parsed.quranPosition ?? {}),
+    surahDirection: parsed.quranPosition?.surahDirection ?? 'reverse',
+  };
+  const mergedLongTerm = {
+    ...fallback.longTermGoal,
+    ...(parsed.longTermGoal ?? {}),
+    mode: parsed.longTermGoal?.mode ?? 'sipara',
+    targetJuz: parsed.longTermGoal?.targetJuz ?? mergedPosition.juz,
+    surahDirection: parsed.longTermGoal?.surahDirection ?? mergedPosition.surahDirection,
+  };
   return {
     settings: { ...fallback.settings, ...(parsed.settings ?? {}) },
-    quranPosition: { ...fallback.quranPosition, ...(parsed.quranPosition ?? {}) },
+    quranPosition: mergedPosition,
     xp: typeof parsed.xp === 'number' ? parsed.xp : fallback.xp,
     shortTermGoal: { ...fallback.shortTermGoal, ...(parsed.shortTermGoal ?? {}) },
-    longTermGoal: { ...fallback.longTermGoal, ...(parsed.longTermGoal ?? {}) },
+    longTermGoal: mergedLongTerm,
     treats: Array.isArray(parsed.treats) && parsed.treats.length > 0 ? parsed.treats : fallback.treats,
     wonTreats: Array.isArray(parsed.wonTreats) ? parsed.wonTreats : fallback.wonTreats,
     logs: Array.isArray(parsed.logs) ? parsed.logs : fallback.logs,

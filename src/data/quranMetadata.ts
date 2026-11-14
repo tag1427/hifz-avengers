@@ -1,4 +1,4 @@
-import type { QuranPosition } from '../types/hifz';
+import type { QuranPosition, SurahDirection } from '../types/hifz';
 
 export interface JuzInfo {
   number: number;
@@ -185,10 +185,135 @@ export interface AdvancePositionResult {
  * and a count of newly memorized Jadeed ayats, computes the range memorized today
  * and the new bookmark position (automatically advancing into subsequent Surahs if needed).
  */
+export interface SiparaSurahProgress {
+  surah: SurahInfo;
+  completedAyats: number;
+  status: 'done' | 'current' | 'pending';
+}
+
+export interface SiparaProgressResult {
+  juz: number;
+  juzInfo: JuzInfo;
+  direction: SurahDirection;
+  surahs: SurahInfo[];
+  surahStatuses: SiparaSurahProgress[];
+  firstSurahOfJuz: SurahInfo;
+  lastSurahOfJuz: SurahInfo;
+  finishingSurah: SurahInfo;
+  totalAyats: number;
+  completedAyats: number;
+  remainingAyats: number;
+  percent: number;
+  isComplete: boolean;
+}
+
+/**
+ * Return Surahs in a Juz ordered by the active memorization direction.
+ * For Juzs that start mid-Surah (Juz 2 and Juz 5), falls back to the spanning Surah.
+ */
+export function getSurahsForJuz(
+  juzNumber: number,
+  direction: SurahDirection = 'reverse'
+): SurahInfo[] {
+  const clampedJuz = Math.max(1, Math.min(30, juzNumber));
+  const direct = QURAN_SURAHS.filter((s) => s.juz === clampedJuz);
+  let baseSurahs = direct;
+  if (baseSurahs.length === 0) {
+    const spanning = [...QURAN_SURAHS].reverse().find((s) => s.juz < clampedJuz);
+    baseSurahs = spanning ? [spanning] : [QURAN_SURAHS[0]];
+  }
+  return direction === 'reverse' ? [...baseSurahs].reverse() : [...baseSurahs];
+}
+
+/**
+ * Automatically calculate completion of a target Sipara (Juz 1-30) from the child's Quran bookmark.
+ * In 'reverse' mode (e.g. Juz 26: 51 Adh-Dhariyat -> 46 Al-Ahqaf), Surahs are memorized from
+ * highest Surah number to lowest, so finishing the first Surah of the Juz (Al-Ahqaf) completes 100%.
+ */
+export function calculateSiparaProgress(
+  targetJuz: number,
+  bookmark: QuranPosition,
+  direction: SurahDirection = bookmark.surahDirection ?? 'reverse'
+): SiparaProgressResult {
+  const clampedJuz = Math.max(1, Math.min(30, targetJuz));
+  const juzInfo = getJuzInfo(clampedJuz);
+  const surahs = getSurahsForJuz(clampedJuz, direction);
+  const ascSurahs = direction === 'reverse' ? [...surahs].reverse() : surahs;
+  const firstSurahOfJuz = ascSurahs[0];
+  const lastSurahOfJuz = ascSurahs[ascSurahs.length - 1];
+  const finishingSurah = surahs[surahs.length - 1];
+
+  let totalAyats = 0;
+  let completedAyats = 0;
+
+  const surahStatuses: SiparaSurahProgress[] = surahs.map((surah) => {
+    totalAyats += surah.totalAyats;
+
+    const alreadyPassedSurah =
+      direction === 'reverse'
+        ? bookmark.surahNumber < surah.number
+        : bookmark.surahNumber > surah.number;
+
+    if (alreadyPassedSurah) {
+      completedAyats += surah.totalAyats;
+      return {
+        surah,
+        completedAyats: surah.totalAyats,
+        status: 'done',
+      };
+    }
+
+    if (bookmark.surahNumber === surah.number) {
+      const inSurah = Math.max(0, Math.min(surah.totalAyats, bookmark.ayatNumber));
+      completedAyats += inSurah;
+      return {
+        surah,
+        completedAyats: inSurah,
+        status: inSurah >= surah.totalAyats ? 'done' : 'current',
+      };
+    }
+
+    return {
+      surah,
+      completedAyats: 0,
+      status: 'pending',
+    };
+  });
+
+  const isComplete = totalAyats > 0 && completedAyats >= totalAyats;
+  const remainingAyats = Math.max(0, totalAyats - completedAyats);
+  const percent = isComplete
+    ? 100
+    : totalAyats > 0
+      ? Math.min(99, Math.round((completedAyats / totalAyats) * 100))
+      : 0;
+
+  return {
+    juz: clampedJuz,
+    juzInfo,
+    direction,
+    surahs,
+    surahStatuses,
+    firstSurahOfJuz,
+    lastSurahOfJuz,
+    finishingSurah,
+    totalAyats,
+    completedAyats,
+    remainingAyats,
+    percent,
+    isComplete,
+  };
+}
+
 export function advanceQuranPosition(
   pos: QuranPosition,
   ayatsAdded: number
 ): AdvancePositionResult {
+  const direction: SurahDirection = pos.surahDirection ?? 'reverse';
+  const step = direction === 'reverse' ? -1 : 1;
+  const canAdvanceSurah = (idx: number) =>
+    direction === 'reverse' ? idx > 0 : idx < QURAN_SURAHS.length - 1;
+
   const safeStartSurah = getSurahInfo(pos.surahNumber);
   const clampedCurrentAyat = Math.max(0, Math.min(safeStartSurah.totalAyats, pos.ayatNumber));
 
@@ -202,6 +327,7 @@ export function advanceQuranPosition(
         juz: pos.juz,
         surahNumber: safeStartSurah.number,
         ayatNumber: clampedCurrentAyat,
+        surahDirection: direction,
       },
       summaryText: 'No new ayats logged',
     };
@@ -211,15 +337,18 @@ export function advanceQuranPosition(
   if (curSurahIdx < 0) curSurahIdx = 0;
 
   let curAyat = clampedCurrentAyat;
+  let crossedSurah = false;
+
   // Determine the very first ayat of today's range
   let firstSurah = QURAN_SURAHS[curSurahIdx];
   let firstAyat = curAyat + 1;
   if (firstAyat > firstSurah.totalAyats) {
-    if (curSurahIdx < QURAN_SURAHS.length - 1) {
-      curSurahIdx += 1;
+    if (canAdvanceSurah(curSurahIdx)) {
+      curSurahIdx += step;
       firstSurah = QURAN_SURAHS[curSurahIdx];
       curAyat = 0;
       firstAyat = 1;
+      crossedSurah = true;
     } else {
       firstAyat = firstSurah.totalAyats;
     }
@@ -228,7 +357,6 @@ export function advanceQuranPosition(
   let remaining = ayatsAdded;
   let endSurah = firstSurah;
   let endAyat = curAyat;
-  let crossedSurah = false;
 
   while (remaining > 0) {
     const surah = QURAN_SURAHS[curSurahIdx];
@@ -240,13 +368,12 @@ export function advanceQuranPosition(
       remaining = 0;
     } else {
       remaining -= spaceLeftInSurah;
-      if (curSurahIdx < QURAN_SURAHS.length - 1) {
-        curSurahIdx += 1;
+      if (canAdvanceSurah(curSurahIdx)) {
+        curSurahIdx += step;
         endSurah = QURAN_SURAHS[curSurahIdx];
         endAyat = 0;
         crossedSurah = true;
       } else {
-        // Reached end of An-Nas (Surah 114)
         endSurah = surah;
         endAyat = surah.totalAyats;
         remaining = 0;
@@ -271,6 +398,7 @@ export function advanceQuranPosition(
       juz: nextJuz,
       surahNumber: endSurah.number,
       ayatNumber: endAyat,
+      surahDirection: direction,
     },
     summaryText,
   };
