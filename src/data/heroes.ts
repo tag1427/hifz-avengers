@@ -1,0 +1,61 @@
+import type { HeroId, HeroTheme } from '../types/hifz';
+
+export const HERO_THEMES: Record<HeroId, HeroTheme> = {
+  'iron-hafiz': {
+    id: 'iron-hafiz',
+    name: 'Iron Hafiz',
+    alias: 'Mk. XXX Quran Suit',
+    tagline: 'Powered by daily Murajaat & razor-sharp focus!',
+    primaryColor: '#dc2626',
+    secondaryColor: '#facc15',
+    accentColor: '#38bdf8',
+    gradientClass: 'from-red-600 via-rose-600 to-amber-500',
+    badgeBg: 'bg-red-600',
+  },
+  'captain-noor': {
+    id: 'captain-noor',
+    name: 'Captain Noor',
+    alias: 'Shield of Steadfastness',
+    tagline: 'Unbreakable memory shield—never misses revision!',
+    primaryColor: '#2563eb',
+    secondaryColor: '#dc2626',
+    accentColor: '#f8fafc',
+    gradientClass: 'from-blue-600 via-indigo-600 to-red-500',
+    badgeBg: 'bg-blue-600',
+  },
+  'spidey-reciter': {
+    id: 'spidey-reciter',
+    name: 'Spidey Reciter',
+    alias: 'Amazing Ayat Slinger',
+    tagline: 'Swift Jadeed memorization with Tajweed precision!',
+    primaryColor: '#e11d48',
+    secondaryColor: '#1d4ed8',
+    accentColor: '#fef08a',
+    gradientClass: 'from-rose-600 via-red-600 to-blue-700',
+    badgeBg: 'bg-rose-600',
+  },
+  'wakanda-guardian': {
+    id: 'wakanda-guardian',
+    name: 'Wakanda Guardian',
+    alias: 'Vibranium Memory Core',
+    tagline: 'Silent strength, fearless before every Musaid test!',
+    primaryColor: '#7c3aed',
+    secondaryColor: '#f59e0b',
+    accentColor: '#e9d5ff',
+    gradientClass: 'from-violet-700 via-purple-700 to-amber-500',
+    badgeBg: 'bg-violet-700',
+  },
+  'thunder-qari': {
+    id: 'thunder-qari',
+    name: 'Thunder Qari',
+    alias: 'Stormbreaker Voice',
+    tagline: 'Booming recitation & lightning-fast Juz Hali!',
+    primaryColor: '#0284c7',
+    secondaryColor: '#eab308',
+    accentColor: '#bae6fd',
+    gradientClass: 'from-sky-600 via-cyan-600 to-amber-400',
+    badgeBg: 'bg-sky-600',
+  },
+};
+
+export const HERO_LIST: HeroTheme[] = Object.values(HERO_THEMES);
