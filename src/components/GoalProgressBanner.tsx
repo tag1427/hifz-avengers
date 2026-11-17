@@ -33,10 +33,10 @@ export function GoalProgressBanner({
     : null;
 
   const longTarget = siparaProgress
-    ? Math.max(1, siparaProgress.totalAyats)
+    ? Math.max(1, siparaProgress.totalLines)
     : Math.max(1, longTermGoal.targetValue);
   const longCurrent = siparaProgress
-    ? siparaProgress.completedAyats
+    ? siparaProgress.completedLines
     : Math.max(0, longTermGoal.currentValue);
   const longPct = siparaProgress
     ? siparaProgress.percent
@@ -44,13 +44,13 @@ export function GoalProgressBanner({
       ? 100
       : Math.min(99, Math.round((longCurrent / longTarget) * 100));
   const longRemaining = siparaProgress
-    ? siparaProgress.remainingAyats
+    ? siparaProgress.remainingLines
     : Math.max(0, longTarget - longCurrent);
   const longUnitLabel = siparaProgress
-    ? 'Ayats'
+    ? 'Lines'
     : longTermGoal.unit === 'pages'
       ? 'Pages'
-      : 'Ayats';
+      : 'Lines';
   const isLongComplete = siparaProgress
     ? siparaProgress.isComplete
     : longCurrent >= longTarget;
@@ -74,7 +74,7 @@ export function GoalProgressBanner({
             </label>
           </div>
           <span className="shrink-0 rounded-xl border-2 border-slate-900 bg-white px-2.5 py-1 font-display text-sm font-black text-orange-600 shadow-comic-sm">
-            {shortCurrent}/{shortTarget} Ayats
+            {shortCurrent}/{shortTarget} Lines
           </span>
         </div>
 
@@ -86,13 +86,15 @@ export function GoalProgressBanner({
             value={Math.min(shortCurrent, shortTarget)}
           />
           <div className="mt-1.5 flex items-center justify-between text-xs font-extrabold text-slate-700">
-            <span>{shortPct}% Complete</span>
+            <span>
+              {shortPct}% ({(shortCurrent / 15).toFixed(1)}/{(shortTarget / 15).toFixed(1)} pgs)
+            </span>
             <span>
               {wheelUnlocked
                 ? shortTermGoal.bonusSpins > 0
                   ? `Bonus Spin Ready! (${shortTermGoal.bonusSpins})`
                   : 'TARGET SMASHED! 🎉'
-                : `${shortRemaining} more Ayat${shortRemaining === 1 ? '' : 's'} to spin!`}
+                : `${shortRemaining} more Line${shortRemaining === 1 ? '' : 's'} to spin!`}
             </span>
           </div>
         </div>
@@ -154,7 +156,9 @@ export function GoalProgressBanner({
           <div className="mt-1.5 flex items-center justify-between text-xs font-extrabold text-slate-700">
             <span>
               {longPct}% Complete
-              {siparaProgress ? ` · Juz ${siparaProgress.juz}` : ''}
+              {siparaProgress
+                ? ` · Juz ${siparaProgress.juz} (${siparaProgress.completedPages}/${siparaProgress.totalPages} pgs)`
+                : ''}
             </span>
             <span>
               {isLongComplete
@@ -183,33 +187,35 @@ export function GoalProgressBanner({
                   : 'flex-wrap'
               }`}
             >
-              {siparaProgress.surahStatuses.map(({ surah, completedAyats, status }) => {
-                const isFinal = surah.number === siparaProgress.finishingSurah.number;
-                const badgeClass =
-                  status === 'done'
-                    ? 'border-emerald-700 bg-emerald-100 text-emerald-900'
-                    : status === 'current'
-                      ? 'border-amber-600 bg-amber-100 text-amber-950 ring-2 ring-amber-300'
-                      : 'border-slate-300 bg-slate-50 text-slate-600';
-                const icon =
-                  status === 'done' ? '✅' : status === 'current' ? '🔥' : isFinal ? '🏁' : '⏳';
-                return (
-                  <span
-                    key={surah.number}
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-extrabold ${badgeClass}`}
-                  >
-                    <span>{icon}</span>
-                    <span>
-                      {surah.number}. {surah.name}
-                    </span>
-                    {status === 'current' && (
-                      <span className="text-[10px] font-black text-amber-800">
-                        ({completedAyats}/{surah.totalAyats})
+              {siparaProgress.surahStatuses.map(
+                ({ surah, completedLines, totalLines, status }) => {
+                  const isFinal = surah.number === siparaProgress.finishingSurah.number;
+                  const badgeClass =
+                    status === 'done'
+                      ? 'border-emerald-700 bg-emerald-100 text-emerald-900'
+                      : status === 'current'
+                        ? 'border-amber-600 bg-amber-100 text-amber-950 ring-2 ring-amber-300'
+                        : 'border-slate-300 bg-slate-50 text-slate-600';
+                  const icon =
+                    status === 'done' ? '✅' : status === 'current' ? '🔥' : isFinal ? '🏁' : '⏳';
+                  return (
+                    <span
+                      key={surah.number}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-extrabold ${badgeClass}`}
+                    >
+                      <span>{icon}</span>
+                      <span>
+                        {surah.number}. {surah.name}
                       </span>
-                    )}
-                  </span>
-                );
-              })}
+                      {status === 'current' && (
+                        <span className="text-[10px] font-black text-amber-800">
+                          ({completedLines}/{totalLines} lines)
+                        </span>
+                      )}
+                    </span>
+                  );
+                }
+              )}
             </div>
           </div>
         )}

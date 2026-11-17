@@ -1,4 +1,9 @@
-import { calculateSiparaProgress, getSurahInfo } from './quranMetadata';
+import {
+  calculateSiparaProgress,
+  getAyatFromSurahLine,
+  getSurahInfo,
+  getSurahLineFromPosition,
+} from './quranMetadata';
 import type {
   AppState,
   DailyLogEntry,
@@ -92,14 +97,15 @@ export function createDemoState(): AppState {
     quranPosition: {
       juz: 26,
       surahNumber: 50,
-      ayatNumber: 15,
+      ayatNumber: 17,
+      lineNumber: 15,
       surahDirection: 'reverse',
     },
     xp: totalXp,
     shortTermGoal: {
-      title: "This Week's Jadeed Target",
-      targetAyats: 20,
-      currentAyats: 16,
+      title: "This Week's Jadeed Target (Lines)",
+      targetAyats: 30,
+      currentAyats: 21,
       bonusSpins: 0,
     },
     longTermGoal: {
@@ -107,9 +113,9 @@ export function createDemoState(): AppState {
       mode: 'sipara',
       targetJuz: 26,
       surahDirection: 'reverse',
-      unit: 'ayats',
-      targetValue: 225,
-      currentValue: 75,
+      unit: 'lines',
+      targetValue: 300,
+      currentValue: 56,
       grandTreatLabel: 'LEGO Marvel Avengers Quinjet',
       grandTreatEmoji: '🚀',
       claimed: false,
@@ -146,12 +152,13 @@ export function createFreshState(): AppState {
       juz: 30,
       surahNumber: 114,
       ayatNumber: 0,
+      lineNumber: 0,
       surahDirection: 'reverse',
     },
     xp: 0,
     shortTermGoal: {
-      title: "This Week's Jadeed Target",
-      targetAyats: 20,
+      title: "This Week's Jadeed Target (Lines)",
+      targetAyats: 30,
       currentAyats: 0,
       bonusSpins: 0,
     },
@@ -160,8 +167,8 @@ export function createFreshState(): AppState {
       mode: 'sipara',
       targetJuz: 30,
       surahDirection: 'reverse',
-      unit: 'ayats',
-      targetValue: 564,
+      unit: 'lines',
+      targetValue: 300,
       currentValue: 0,
       grandTreatLabel: 'Special Family Outing & Marvel Gift',
       grandTreatEmoji: '🏆',
@@ -175,18 +182,51 @@ export function createFreshState(): AppState {
 
 export function normalizeAppState(parsed: Partial<AppState>): AppState {
   const fallback = createDemoState();
-  const mergedPosition = {
+  const basePosition = {
     ...fallback.quranPosition,
     ...(parsed.quranPosition ?? {}),
     surahDirection: parsed.quranPosition?.surahDirection ?? 'reverse',
   };
-  const mergedLongTerm = {
+  const resolvedSurah = getSurahInfo(basePosition.surahNumber);
+  const resolvedLine =
+    parsed.quranPosition && typeof parsed.quranPosition.lineNumber !== 'number'
+      ? getSurahLineFromPosition(
+          {
+            juz: basePosition.juz,
+            surahNumber: basePosition.surahNumber,
+            ayatNumber: basePosition.ayatNumber,
+            surahDirection: basePosition.surahDirection,
+          },
+          resolvedSurah
+        )
+      : getSurahLineFromPosition(basePosition, resolvedSurah);
+
+  const mergedPosition = {
+    ...basePosition,
+    lineNumber: resolvedLine,
+  };
+
+  let mergedLongTerm = {
     ...fallback.longTermGoal,
     ...(parsed.longTermGoal ?? {}),
     mode: parsed.longTermGoal?.mode ?? 'sipara',
     targetJuz: parsed.longTermGoal?.targetJuz ?? mergedPosition.juz,
     surahDirection: parsed.longTermGoal?.surahDirection ?? mergedPosition.surahDirection,
   };
+  if (mergedLongTerm.mode !== 'custom') {
+    const siparaCalc = calculateSiparaProgress(
+      mergedLongTerm.targetJuz ?? mergedPosition.juz,
+      mergedPosition,
+      mergedLongTerm.surahDirection ?? mergedPosition.surahDirection
+    );
+    mergedLongTerm = {
+      ...mergedLongTerm,
+      unit: 'lines',
+      targetValue: siparaCalc.totalLines,
+      currentValue: siparaCalc.completedLines,
+    };
+  }
+
   return {
     settings: { ...fallback.settings, ...(parsed.settings ?? {}) },
     quranPosition: mergedPosition,
@@ -252,6 +292,7 @@ export interface CreateStudentParams {
   juz: number;
   surahNumber: number;
   ayatNumber: number;
+  lineNumber?: number;
   surahDirection: SurahDirection;
   weeklyTargetAyats: number;
   parentPin?: string;
@@ -262,7 +303,7 @@ export function isStockDemoStudent(student: AppState): boolean {
   const defaultPos =
     (student.quranPosition.juz === 26 &&
       student.quranPosition.surahNumber === 50 &&
-      student.quranPosition.ayatNumber === 15) ||
+      (student.quranPosition.ayatNumber === 17 || student.quranPosition.ayatNumber === 15)) ||
     (student.quranPosition.juz === 29 &&
       student.quranPosition.surahNumber === 68 &&
       student.quranPosition.ayatNumber === 4);
@@ -271,9 +312,11 @@ export function isStockDemoStudent(student: AppState): boolean {
     student.settings.childName === 'Little Champion' &&
     student.settings.heroId === 'iron-hafiz' &&
     student.settings.parentPin === '1234';
+  const defaultShort =
+    (student.shortTermGoal.targetAyats === 30 && student.shortTermGoal.currentAyats === 21) ||
+    (student.shortTermGoal.targetAyats === 20 && student.shortTermGoal.currentAyats === 16);
   const defaultGoals =
-    student.shortTermGoal.targetAyats === 20 &&
-    student.shortTermGoal.currentAyats === 16 &&
+    defaultShort &&
     student.treats.length === DEFAULT_TREATS.length &&
     (student.longTermGoal.title === 'Complete Juz 26 (Ha Meem)' ||
       student.longTermGoal.title === 'Conquer Juz 29 (Sipara Mission)');
@@ -299,16 +342,29 @@ export function syncStoreMirrors(store: HifzMultiStore): HifzMultiStore {
 export function createNewStudentProfile(params: CreateStudentParams): StudentProfile {
   const surah = getSurahInfo(params.surahNumber);
   const clampedJuz = Math.max(1, Math.min(30, params.juz));
-  const clampedAyat = Math.max(0, Math.min(surah.totalAyats, params.ayatNumber));
+  const clampedLine =
+    typeof params.lineNumber === 'number'
+      ? Math.max(0, Math.min(surah.totalLines, params.lineNumber))
+      : undefined;
+  const clampedAyat = Math.max(
+    0,
+    Math.min(
+      surah.totalAyats,
+      clampedLine !== undefined && params.ayatNumber === 0
+        ? getAyatFromSurahLine(clampedLine, surah)
+        : params.ayatNumber
+    )
+  );
   const quranPosition: QuranPosition = {
     juz: clampedJuz,
     surahNumber: surah.number,
     ayatNumber: clampedAyat,
+    lineNumber: clampedLine,
     surahDirection: params.surahDirection,
   };
   const sipara = calculateSiparaProgress(clampedJuz, quranPosition, params.surahDirection);
   const nowIso = new Date().toISOString();
-  const weeklyTarget = Math.max(1, params.weeklyTargetAyats || 20);
+  const weeklyTarget = Math.max(1, params.weeklyTargetAyats || 30);
 
   return {
     id: `student-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -327,7 +383,7 @@ export function createNewStudentProfile(params: CreateStudentParams): StudentPro
     quranPosition,
     xp: 0,
     shortTermGoal: {
-      title: "This Week's Jadeed Target",
+      title: "This Week's Jadeed Target (Lines)",
       targetAyats: weeklyTarget,
       currentAyats: 0,
       bonusSpins: 0,
@@ -337,9 +393,9 @@ export function createNewStudentProfile(params: CreateStudentParams): StudentPro
       mode: 'sipara',
       targetJuz: clampedJuz,
       surahDirection: params.surahDirection,
-      unit: 'ayats',
-      targetValue: sipara.totalAyats,
-      currentValue: sipara.completedAyats,
+      unit: 'lines',
+      targetValue: sipara.totalLines,
+      currentValue: sipara.completedLines,
       grandTreatLabel: 'Special Grand Prize',
       grandTreatEmoji: '🏆',
       claimed: false,
@@ -486,8 +542,9 @@ function mergeTwoStudents(localStudent: StudentProfile, serverStudent: StudentPr
     );
     nextLongTerm = {
       ...nextLongTerm,
-      targetValue: calc.totalAyats,
-      currentValue: calc.completedAyats,
+      unit: 'lines',
+      targetValue: calc.totalLines,
+      currentValue: calc.completedLines,
     };
   }
 

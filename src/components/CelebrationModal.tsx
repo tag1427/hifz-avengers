@@ -110,7 +110,7 @@ export function CelebrationModal({
             <div className="rounded-xl border-2 border-slate-900 bg-amber-50 p-2.5">
               <p className="text-[11px] font-black uppercase text-slate-600">Jadeed</p>
               <p className="font-display text-lg font-black text-orange-600">{entry.jadeedMark}/10</p>
-              <p className="text-[11px] font-bold text-slate-500">+{entry.jadeedAyats} ayats</p>
+              <p className="text-[11px] font-bold text-slate-500">+{entry.jadeedAyats} lines</p>
             </div>
           </div>
 

@@ -192,7 +192,7 @@ export function TreatSpinWheelModal({
             <div className="mb-3 flex items-center gap-2.5 rounded-2xl border-2 border-slate-900 bg-amber-100 px-3.5 py-2.5 text-xs font-extrabold text-slate-900">
               <Lock className="h-4 w-4 shrink-0 text-orange-600" aria-hidden="true" />
               <span>
-                Preview Mode: Memorize <strong>{remainingAyats} more Jadeed Ayat{remainingAyats === 1 ? '' : 's'}</strong> to unlock your spin!
+                Preview Mode: Memorize <strong>{remainingAyats} more Jadeed Line{remainingAyats === 1 ? '' : 's'}</strong> to unlock your spin!
               </span>
             </div>
           )}

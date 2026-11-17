@@ -17,7 +17,9 @@ import {
   QURAN_JUZ_LIST,
   QURAN_SURAHS,
   calculateSiparaProgress,
+  getAyatFromSurahLine,
   getSurahInfo,
+  getSurahLineFromPosition,
   getSurahsForJuz,
 } from '../data/quranMetadata';
 import type { HeroId, StudentProfile, SurahDirection } from '../types/hifz';
@@ -90,6 +92,7 @@ export function StudentDashboard({
             const rank = getHeroRank(student.xp);
             const streak = calculateStreak(student.logs);
             const surah = getSurahInfo(student.quranPosition.surahNumber);
+            const currentLine = getSurahLineFromPosition(student.quranPosition, surah);
             const direction =
               student.longTermGoal.mode !== 'custom'
                 ? (student.longTermGoal.surahDirection ??
@@ -111,11 +114,16 @@ export function StudentDashboard({
                 : null;
 
             const longTarget = sipara
-              ? Math.max(1, sipara.totalAyats)
+              ? Math.max(1, sipara.totalLines)
               : Math.max(1, student.longTermGoal.targetValue);
             const longCurrent = sipara
-              ? sipara.completedAyats
+              ? sipara.completedLines
               : Math.max(0, student.longTermGoal.currentValue);
+            const longUnit = sipara
+              ? 'Lines'
+              : student.longTermGoal.unit === 'pages'
+                ? 'Pgs'
+                : 'Lines';
             const longPct = sipara
               ? sipara.percent
               : Math.min(100, Math.round((longCurrent / longTarget) * 100));
@@ -169,8 +177,8 @@ export function StudentDashboard({
                     <span className="inline-flex items-center gap-1.5 truncate">
                       <BookOpen className="h-3.5 w-3.5 shrink-0 text-orange-600" aria-hidden="true" />
                       <span className="truncate">
-                        Juz {student.quranPosition.juz} • {surah.number}. {surah.name} (Ayat{' '}
-                        {student.quranPosition.ayatNumber})
+                        Juz {student.quranPosition.juz} • {surah.number}. {surah.name} (Line{' '}
+                        {currentLine}/{surah.totalLines})
                       </span>
                     </span>
                     <span className="shrink-0 text-[11px]" title={direction === 'reverse' ? 'Backwards Surah Order' : 'Forward Surah Order'}>
@@ -187,7 +195,7 @@ export function StudentDashboard({
                           Weekly Target
                         </span>
                         <span className="text-orange-600">
-                          {shortCurrent}/{shortTarget} Ayats ({shortPct}%)
+                          {shortCurrent}/{shortTarget} Lines ({shortPct}%)
                         </span>
                       </div>
                       <progress
@@ -204,7 +212,7 @@ export function StudentDashboard({
                           <span className="truncate">{longLabel}</span>
                         </span>
                         <span className="shrink-0 text-purple-700">
-                          {longCurrent}/{longTarget} ({longPct}%)
+                          {longCurrent}/{longTarget} {longUnit} ({longPct}%)
                         </span>
                       </div>
                       <progress
@@ -278,8 +286,8 @@ export function AddStudentDialog({
   const [juz, setJuz] = useState<number>(30);
   const [direction, setDirection] = useState<SurahDirection>('reverse');
   const [surahNumber, setSurahNumber] = useState<number>(114);
-  const [ayatNumber, setAyatNumber] = useState<string>('0');
-  const [weeklyTarget, setWeeklyTarget] = useState<string>('20');
+  const [lineNumber, setLineNumber] = useState<string>('0');
+  const [weeklyTarget, setWeeklyTarget] = useState<string>('30');
 
   useNativeDialogControls(dialogRef, isOpen, () => {
     onClose();
@@ -293,7 +301,7 @@ export function AddStudentDialog({
     const orderedSurahs = getSurahsForJuz(nextJuz, nextDir);
     if (orderedSurahs.length > 0) {
       setSurahNumber(orderedSurahs[0].number);
-      setAyatNumber('0');
+      setLineNumber('0');
     }
   };
 
@@ -302,14 +310,21 @@ export function AddStudentDialog({
     const trimmed = name.trim();
     if (!trimmed) return;
 
+    const clampedLine = Math.max(
+      0,
+      Math.min(selectedSurah.totalLines, parseInt(lineNumber, 10) || 0)
+    );
+    const derivedAyat = getAyatFromSurahLine(clampedLine, selectedSurah);
+
     const newStudent = createNewStudentProfile({
       name: trimmed,
       heroId,
       juz,
       surahNumber,
-      ayatNumber: Math.max(0, Math.min(selectedSurah.totalAyats, parseInt(ayatNumber, 10) || 0)),
+      ayatNumber: derivedAyat,
+      lineNumber: clampedLine,
       surahDirection: direction,
-      weeklyTargetAyats: Math.max(1, parseInt(weeklyTarget, 10) || 20),
+      weeklyTargetAyats: Math.max(1, parseInt(weeklyTarget, 10) || 30),
       parentPin: existingParentPin,
     });
 
@@ -319,8 +334,8 @@ export function AddStudentDialog({
     setJuz(30);
     setDirection('reverse');
     setSurahNumber(114);
-    setAyatNumber('0');
-    setWeeklyTarget('20');
+    setLineNumber('0');
+    setWeeklyTarget('30');
   };
 
   return (
@@ -494,13 +509,13 @@ export function AddStudentDialog({
                 onChange={(e) => {
                   const nextSurah = getSurahInfo(Number(e.target.value));
                   setSurahNumber(nextSurah.number);
-                  setAyatNumber('0');
+                  setLineNumber('0');
                 }}
                 className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-900"
               >
                 {QURAN_SURAHS.map((s) => (
                   <option key={s.number} value={s.number}>
-                    {s.number}. {s.name} ({s.totalAyats} ayats)
+                    {s.number}. {s.name} ({s.totalLines} lines)
                   </option>
                 ))}
               </select>
@@ -510,21 +525,21 @@ export function AddStudentDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label
-                htmlFor="new-student-ayat"
+                htmlFor="new-student-line"
                 className="block text-xs font-black uppercase text-slate-700"
               >
-                Ayat Reached (0–{selectedSurah.totalAyats})
+                Line Reached (0–{selectedSurah.totalLines})
               </label>
               <input
-                id="new-student-ayat"
-                name="ayatNumber"
+                id="new-student-line"
+                name="lineNumber"
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
                 required
                 enterKeyHint="next"
-                value={ayatNumber}
-                onChange={(e) => setAyatNumber(e.target.value.replace(/\D/g, ''))}
+                value={lineNumber}
+                onChange={(e) => setLineNumber(e.target.value.replace(/\D/g, ''))}
                 className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-3 py-2 font-display text-base font-black text-orange-600"
               />
             </div>
@@ -534,7 +549,7 @@ export function AddStudentDialog({
                 htmlFor="new-student-weekly"
                 className="block text-xs font-black uppercase text-slate-700"
               >
-                Weekly Jadeed Goal (Ayats)
+                Weekly Goal (Lines · 15/pg)
               </label>
               <input
                 id="new-student-weekly"

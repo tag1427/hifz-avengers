@@ -17,7 +17,14 @@ import {
   Upload,
 } from 'lucide-react';
 import { getLocalDateString, normalizeMultiStore } from '../data/defaultState';
-import { QURAN_JUZ_LIST, QURAN_SURAHS, calculateSiparaProgress, getSurahInfo } from '../data/quranMetadata';
+import {
+  QURAN_JUZ_LIST,
+  QURAN_SURAHS,
+  calculateSiparaProgress,
+  getAyatFromSurahLine,
+  getSurahInfo,
+  getSurahLineFromPosition,
+} from '../data/quranMetadata';
 import type { AppState, HifzMultiStore, LongTermGoal, SurahDirection, TreatItem } from '../types/hifz';
 
 interface ParentModuleProps {
@@ -66,6 +73,11 @@ export function ParentModule({
   // Quran Bookmark (current position) local form
   const [qpJuz, setQpJuz] = useState<number>(state.quranPosition.juz);
   const [qpSurah, setQpSurah] = useState<number>(state.quranPosition.surahNumber);
+  const [qpLine, setQpLine] = useState<string>(
+    String(
+      getSurahLineFromPosition(state.quranPosition, getSurahInfo(state.quranPosition.surahNumber))
+    )
+  );
   const [qpAyat, setQpAyat] = useState<string>(String(state.quranPosition.ayatNumber));
   const [qpDirection, setQpDirection] = useState<SurahDirection>(
     state.quranPosition.surahDirection ?? 'reverse'
@@ -85,7 +97,9 @@ export function ParentModule({
   const [ltDirection, setLtDirection] = useState<SurahDirection>(
     state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse'
   );
-  const [ltUnit, setLtUnit] = useState<'ayats' | 'pages'>(state.longTermGoal.unit);
+  const [ltUnit, setLtUnit] = useState<'lines' | 'ayats' | 'pages'>(
+    state.longTermGoal.unit === 'pages' ? 'pages' : 'lines'
+  );
   const [ltTarget, setLtTarget] = useState<string>(String(state.longTermGoal.targetValue));
   const [ltCurrent, setLtCurrent] = useState<string>(String(state.longTermGoal.currentValue));
   const [ltTreatLabel, setLtTreatLabel] = useState<string>(state.longTermGoal.grandTreatLabel);
@@ -133,6 +147,11 @@ export function ParentModule({
       // Sync local drafts when entering Parent HQ
       setQpJuz(state.quranPosition.juz);
       setQpSurah(state.quranPosition.surahNumber);
+      setQpLine(
+        String(
+          getSurahLineFromPosition(state.quranPosition, getSurahInfo(state.quranPosition.surahNumber))
+        )
+      );
       setQpAyat(String(state.quranPosition.ayatNumber));
       setQpDirection(state.quranPosition.surahDirection ?? 'reverse');
       setStTitle(state.shortTermGoal.title);
@@ -144,7 +163,7 @@ export function ParentModule({
       setLtDirection(
         state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse'
       );
-      setLtUnit(state.longTermGoal.unit);
+      setLtUnit(state.longTermGoal.unit === 'pages' ? 'pages' : 'lines');
       setLtTarget(String(state.longTermGoal.targetValue));
       setLtCurrent(String(state.longTermGoal.currentValue));
       setLtTreatLabel(state.longTermGoal.grandTreatLabel);
@@ -261,9 +280,9 @@ export function ParentModule({
             mode: 'sipara',
             targetJuz: ltTargetJuz,
             surahDirection: ltDirection,
-            unit: 'ayats',
-            targetValue: siparaCalc.totalAyats,
-            currentValue: siparaCalc.completedAyats,
+            unit: 'lines',
+            targetValue: siparaCalc.totalLines,
+            currentValue: siparaCalc.completedLines,
             grandTreatLabel: ltTreatLabel.trim() || 'Special Grand Treat',
             grandTreatEmoji: ltTreatEmoji.trim() || '🏆',
             claimed: ltClaimed,
@@ -271,7 +290,7 @@ export function ParentModule({
         : {
             title: ltTitle.trim() || 'Long-Term Quran Quest',
             mode: 'custom',
-            unit: ltUnit,
+            unit: ltUnit === 'pages' ? 'pages' : 'lines',
             targetValue: Math.max(1, parseInt(ltTarget, 10) || 300),
             currentValue: Math.max(0, parseInt(ltCurrent, 10) || 0),
             grandTreatLabel: ltTreatLabel.trim() || 'Special Grand Treat',
@@ -340,14 +359,21 @@ export function ParentModule({
 
   const handleSaveQuranPosition = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const maxLine = selectedSurahInfo.totalLines;
     const maxAyat = selectedSurahInfo.totalAyats;
-    const parsedAyat = Math.max(0, Math.min(maxAyat, parseInt(qpAyat, 10) || 0));
+    const parsedLine = Math.max(0, Math.min(maxLine, parseInt(qpLine, 10) || 0));
+    const parsedAyat = Math.max(
+      0,
+      Math.min(maxAyat, parseInt(qpAyat, 10) || getAyatFromSurahLine(parsedLine, selectedSurahInfo))
+    );
+    setQpLine(String(parsedLine));
     setQpAyat(String(parsedAyat));
     onUpdateState((prev) => {
       const nextPos = {
         juz: qpJuz,
         surahNumber: qpSurah,
         ayatNumber: parsedAyat,
+        lineNumber: parsedLine,
         surahDirection: qpDirection,
       };
       if (prev.longTermGoal.mode !== 'custom') {
@@ -362,8 +388,9 @@ export function ParentModule({
           longTermGoal: {
             ...prev.longTermGoal,
             surahDirection: qpDirection,
-            targetValue: recalculated.totalAyats,
-            currentValue: recalculated.completedAyats,
+            unit: 'lines',
+            targetValue: recalculated.totalLines,
+            currentValue: recalculated.completedLines,
           },
         };
       }
@@ -374,7 +401,7 @@ export function ParentModule({
     });
     setLtDirection(qpDirection);
     showSavedToast(
-      `Quran Bookmark set to Juz ${qpJuz} • Surah ${selectedSurahInfo.name}, Ayat ${parsedAyat} (${qpDirection === 'reverse' ? 'Backwards Surah order' : 'Forward Surah order'})!`
+      `Quran Bookmark set to Juz ${qpJuz} • Surah ${selectedSurahInfo.name}, Line ${parsedLine}/${maxLine} (${qpDirection === 'reverse' ? 'Backwards' : 'Forward'})!`
     );
   };
 
@@ -465,16 +492,16 @@ export function ParentModule({
         </div>
       )}
 
-      {/* 0. Quran Bookmark (Current Juz, Surah & Ayat) */}
+      {/* 0. Quran Bookmark (Current Juz, Surah & Line) */}
       <section aria-labelledby="qp-editor-heading" className="comic-card bg-gradient-to-br from-amber-50 via-white to-orange-50 p-4 sm:p-5">
         <div className="flex items-center gap-2">
           <BookMarked className="h-5 w-5 text-orange-600" aria-hidden="true" />
           <h3 id="qp-editor-heading" className="font-comic text-xl tracking-wide text-slate-900">
-            Quran Bookmark (Current Juz, Surah &amp; Ayat)
+            Quran Bookmark (15-Line Misri Mushaf)
           </h3>
         </div>
         <p className="mt-1 text-xs font-bold text-slate-600">
-          Set where your child currently is in Jadeed. When he logs new ayats (e.g. 4 ayats), the app auto-calculates from this exact spot!
+          Set where {state.settings.childName} currently is in Jadeed. When logging new Misri lines (15 lines = 1 page), the app auto-calculates from this exact spot!
         </p>
 
         <form onSubmit={handleSaveQuranPosition} className="mt-3 space-y-3">
@@ -491,16 +518,15 @@ export function ParentModule({
                   const info = getSurahInfo(num);
                   setQpSurah(num);
                   setQpJuz(info.juz);
-                  const currentNum = parseInt(qpAyat, 10) || 0;
-                  if (currentNum > info.totalAyats) {
-                    setQpAyat(String(info.totalAyats));
-                  }
+                  const currentLineNum = Math.min(info.totalLines, parseInt(qpLine, 10) || 0);
+                  setQpLine(String(currentLineNum));
+                  setQpAyat(String(getAyatFromSurahLine(currentLineNum, info)));
                 }}
                 className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 text-sm font-bold text-slate-900"
               >
                 {QURAN_SURAHS.map((s) => (
                   <option key={s.number} value={s.number}>
-                    {s.number}. {s.name} ({s.totalAyats} Ayats)
+                    {s.number}. {s.name} ({s.totalLines} lines · {s.totalAyats} ayats)
                   </option>
                 ))}
               </select>
@@ -527,8 +553,29 @@ export function ParentModule({
 
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-36">
+              <label htmlFor="qp-line" className="block text-xs font-black uppercase text-slate-700">
+                Line Reached (0–{selectedSurahInfo.totalLines})
+              </label>
+              <input
+                id="qp-line"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                required
+                value={qpLine}
+                onChange={(e) => {
+                  const clean = e.target.value.replace(/\D/g, '');
+                  setQpLine(clean);
+                  const n = Math.min(selectedSurahInfo.totalLines, parseInt(clean, 10) || 0);
+                  setQpAyat(String(getAyatFromSurahLine(n, selectedSurahInfo)));
+                }}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 font-display text-base font-black text-orange-600"
+              />
+            </div>
+
+            <div className="w-36">
               <label htmlFor="qp-ayat" className="block text-xs font-black uppercase text-slate-700">
-                Ayat Reached (0–{selectedSurahInfo.totalAyats})
+                Approx Ayat (0–{selectedSurahInfo.totalAyats})
               </label>
               <input
                 id="qp-ayat"
@@ -537,8 +584,20 @@ export function ParentModule({
                 pattern="[0-9]*"
                 required
                 value={qpAyat}
-                onChange={(e) => setQpAyat(e.target.value.replace(/\D/g, ''))}
-                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 font-display text-base font-black text-orange-600"
+                onChange={(e) => {
+                  const clean = e.target.value.replace(/\D/g, '');
+                  setQpAyat(clean);
+                  const n = Math.min(selectedSurahInfo.totalAyats, parseInt(clean, 10) || 0);
+                  setQpLine(
+                    String(
+                      getSurahLineFromPosition(
+                        { juz: qpJuz, surahNumber: qpSurah, ayatNumber: n },
+                        selectedSurahInfo
+                      )
+                    )
+                  );
+                }}
+                className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-white px-3 py-2 font-display text-base font-black text-slate-700"
               />
             </div>
 
@@ -602,7 +661,7 @@ export function ParentModule({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="st-target" className="block text-xs font-black uppercase text-slate-700">
-                Target Ayats (e.g. 20)
+                Target Misri Lines (e.g. 30 = 2 pgs)
               </label>
               <input
                 id="st-target"
@@ -617,7 +676,7 @@ export function ParentModule({
             </div>
             <div>
               <label htmlFor="st-current" className="block text-xs font-black uppercase text-slate-700">
-                Current Ayats
+                Current Lines Done
               </label>
               <input
                 id="st-current"
@@ -947,11 +1006,11 @@ export function ParentModule({
                   <div className="rounded-xl border-2 border-slate-900 bg-white p-2.5 text-xs font-bold text-slate-800">
                     <div className="flex flex-wrap items-center justify-between gap-1">
                       <span>
-                        📍 Bookmark: Juz {state.quranPosition.juz} • {curSurah.number}. {curSurah.name} (Ayat{' '}
-                        {state.quranPosition.ayatNumber})
+                        📍 Bookmark: Juz {state.quranPosition.juz} • {curSurah.number}. {curSurah.name} (Line{' '}
+                        {getSurahLineFromPosition(state.quranPosition, curSurah)}/{curSurah.totalLines})
                       </span>
                       <span className="font-display text-sm font-black text-purple-700">
-                        {preview.completedAyats}/{preview.totalAyats} Ayats ({preview.percent}%)
+                        {preview.completedLines}/{preview.totalLines} Lines ({preview.completedPages}/{preview.totalPages} pgs • {preview.percent}%)
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] font-extrabold text-indigo-800">
@@ -959,7 +1018,7 @@ export function ParentModule({
                       <span className="underline">
                         Surah {preview.finishingSurah.number}. {preview.finishingSurah.name}
                       </span>{' '}
-                      (Ayat {preview.finishingSurah.totalAyats}).
+                      ({preview.finishingSurah.totalLines} lines / Ayat {preview.finishingSurah.totalAyats}).
                     </p>
                   </div>
                 </div>
@@ -973,11 +1032,11 @@ export function ParentModule({
                 </label>
                 <select
                   id="lt-unit"
-                  value={ltUnit}
-                  onChange={(e) => setLtUnit(e.target.value as 'ayats' | 'pages')}
+                  value={ltUnit === 'pages' ? 'pages' : 'lines'}
+                  onChange={(e) => setLtUnit(e.target.value as 'lines' | 'ayats' | 'pages')}
                   className="mt-1 w-full rounded-xl border-2 border-slate-900 bg-slate-50 px-2 py-2 text-sm font-bold"
                 >
-                  <option value="ayats">Ayats</option>
+                  <option value="lines">Lines (15/page)</option>
                   <option value="pages">Pages</option>
                 </select>
               </div>
@@ -1181,7 +1240,7 @@ export function ParentModule({
             </div>
             <div>
               <label htmlFor="ayats-per-page" className="block text-[11px] font-black uppercase text-slate-700">
-                Ayats / Page
+                Lines / Page (Misri)
               </label>
               <input
                 id="ayats-per-page"
@@ -1233,7 +1292,7 @@ export function ParentModule({
                     className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-bold"
                   >
                     <span className="truncate">
-                      {log.date}: {log.murajaatJuz ? `Juz ${log.murajaatJuz} • ` : ''}+{log.jadeedAyats} ayats • Marks {log.murajaatMark}/{log.juzHaliMark}/{log.jadeedMark}
+                      {log.date}: {log.murajaatJuz ? `Juz ${log.murajaatJuz} • ` : ''}+{log.jadeedAyats} lines • Marks {log.murajaatMark}/{log.juzHaliMark}/{log.jadeedMark}
                     </span>
                     <button
                       type="button"

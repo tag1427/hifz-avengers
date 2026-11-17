@@ -317,7 +317,7 @@ export function App() {
         ? payload.jadeedAyats / Math.max(1, state.settings.ayatsPerPage)
         : payload.jadeedAyats;
     const newLongCurrent = siparaAfter
-      ? siparaAfter.completedAyats
+      ? siparaAfter.completedLines
       : Number((state.longTermGoal.currentValue + longDelta).toFixed(1));
     const grandPrizeUnlockedNow = siparaAfter
       ? siparaAfter.isComplete && !state.longTermGoal.claimed
@@ -353,8 +353,9 @@ export function App() {
         longTermGoal: prevSipara
           ? {
               ...prev.longTermGoal,
-              targetValue: prevSipara.totalAyats,
-              currentValue: prevSipara.completedAyats,
+              unit: 'lines',
+              targetValue: prevSipara.totalLines,
+              currentValue: prevSipara.completedLines,
             }
           : {
               ...prev.longTermGoal,

@@ -74,7 +74,9 @@ function isStockDemoStudentServer(student) {
 
   const allDemoLogs = logs.every((l) => l && typeof l.id === 'string' && l.id.startsWith('demo-log-'));
   const defaultPos =
-    (pos.juz === 26 && pos.surahNumber === 50 && pos.ayatNumber === 15) ||
+    (pos.juz === 26 &&
+      pos.surahNumber === 50 &&
+      (pos.ayatNumber === 17 || pos.ayatNumber === 15)) ||
     (pos.juz === 29 && pos.surahNumber === 68 && pos.ayatNumber === 4);
   const defaultWon = wonTreats.every((w) => w && w.id === 'won-demo-1');
   const defaultSettings =

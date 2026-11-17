@@ -5,6 +5,7 @@ import {
   QURAN_JUZ_LIST,
   advanceQuranPosition,
   getSurahInfo,
+  getSurahLineFromPosition,
 } from '../data/quranMetadata';
 import type { AppSettings, QuranPosition } from '../types/hifz';
 import { getMarkFeedback } from '../utils/hifzMath';
@@ -102,11 +103,12 @@ export function DailyLogForm({
   const [murajaatMark, setMurajaatMark] = useState<number>(9);
   const [juzHaliPages, setJuzHaliPages] = useState<number>(settings.defaultJuzHaliPages);
   const [juzHaliMark, setJuzHaliMark] = useState<number>(9);
-  const [jadeedAyats, setJadeedAyats] = useState<number>(4);
+  const [jadeedAyats, setJadeedAyats] = useState<number>(5);
   const [jadeedMark, setJadeedMark] = useState<number>(9);
   const [jadeedNote, setJadeedNote] = useState<string>('');
 
   const currentSurah = getSurahInfo(quranPosition.surahNumber);
+  const currentLine = getSurahLineFromPosition(quranPosition, currentSurah);
   const advancePreview = advanceQuranPosition(quranPosition, jadeedAyats);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -273,8 +275,8 @@ export function DailyLogForm({
               <div className="text-xs font-extrabold text-slate-800">
                 <span className="text-slate-500">Current Position:</span>{' '}
                 <span className="text-slate-950">
-                  Juz {quranPosition.juz} • Surah {currentSurah.number} ({currentSurah.name}), Ayat{' '}
-                  {quranPosition.ayatNumber}/{currentSurah.totalAyats}
+                  Juz {quranPosition.juz} • Surah {currentSurah.number} ({currentSurah.name}), Line{' '}
+                  {currentLine}/{currentSurah.totalLines}
                 </span>
               </div>
             </div>
@@ -283,17 +285,17 @@ export function DailyLogForm({
           <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
             <div>
               <label htmlFor="jadeed-ayats" className="block text-sm font-extrabold text-slate-900">
-                New Ayats Memorized Today
+                New Lines Memorized Today (15-Line Misri)
               </label>
               <p className="text-xs font-bold text-slate-600">
-                Auto-calculates from your Quran Bookmark!
+                15 lines = 1 Misri page • Auto-advances your Bookmark!
               </p>
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                aria-label="Decrease Jadeed ayats"
+                aria-label="Decrease Jadeed lines"
                 onClick={() => {
                   playTapClick(settings.soundEnabled);
                   setJadeedAyats((a) => Math.max(0, a - 1));
@@ -317,7 +319,7 @@ export function DailyLogForm({
               />
               <button
                 type="button"
-                aria-label="Increase Jadeed ayats"
+                aria-label="Increase Jadeed lines"
                 onClick={() => {
                   playTapClick(settings.soundEnabled);
                   setJadeedAyats((a) => Math.min(200, a + 1));
@@ -329,10 +331,10 @@ export function DailyLogForm({
             </div>
           </div>
 
-          {/* Quick Ayat Chips */}
+          {/* Quick Misri Line Chips */}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <span className="text-xs font-extrabold text-slate-600">Quick set:</span>
-            {[3, 4, 5, 7, 10].map((preset) => (
+            {[3, 5, 7, 10, 15].map((preset) => (
               <button
                 key={preset}
                 type="button"
@@ -346,7 +348,7 @@ export function DailyLogForm({
                     : 'bg-white text-slate-900 hover:bg-amber-200'
                 }`}
               >
-                {preset} Ayats
+                {preset === 15 ? '15 Lines (1 Pg)' : `${preset} Lines`}
               </button>
             ))}
           </div>
@@ -359,17 +361,17 @@ export function DailyLogForm({
                   ⚡ Today&apos;s Range: <strong>{advancePreview.summaryText}</strong>
                 </span>
                 <span className="rounded-lg border border-slate-900 bg-white px-2 py-0.5 text-[11px] font-black text-orange-700">
-                  Next Bookmark: {advancePreview.endSurah.name} ({advancePreview.newPosition.ayatNumber}/{advancePreview.endSurah.totalAyats})
+                  Next Bookmark: {advancePreview.endSurah.name} (Line {advancePreview.endLine}/{advancePreview.endSurah.totalLines})
                 </span>
               </div>
             ) : (
-              <span>No new Jadeed ayats selected (Bookmark stays at {currentSurah.name}, Ayat {quranPosition.ayatNumber}).</span>
+              <span>No new Misri lines selected (Bookmark stays at {currentSurah.name}, Line {currentLine}).</span>
             )}
           </div>
 
           <div className="mt-3">
             <label htmlFor="jadeed-note" className="block text-xs font-extrabold text-slate-700">
-              Custom Note (optional — auto-fills Surah &amp; Ayats if blank)
+              Custom Note (optional — auto-fills Surah &amp; Misri Lines if blank)
             </label>
             <input
               id="jadeed-note"

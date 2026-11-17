@@ -13,7 +13,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { getLocalDateString } from '../data/defaultState';
-import { QURAN_JUZ_LIST, getJuzInfo, getSurahInfo } from '../data/quranMetadata';
+import { QURAN_JUZ_LIST, getJuzInfo, getSurahInfo, getSurahLineFromPosition } from '../data/quranMetadata';
 import type { AppSettings, DailyLogEntry, QuranPosition } from '../types/hifz';
 import { calculateForecast, computePaceMetrics, getMarkFeedback } from '../utils/hifzMath';
 
@@ -128,11 +128,12 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
   const totalSiparaRevisions = Array.from(siparaMap.values()).reduce((s, v) => s + v.count, 0);
   const uniqueSiparasCount = siparaMap.size;
 
-  // Current Surah bookmark progress
+  // Current Surah bookmark progress (in 15-line Misri Mushaf lines)
   const currentSurah = getSurahInfo(quranPosition.surahNumber);
+  const currentLine = getSurahLineFromPosition(quranPosition, currentSurah);
   const surahPct = Math.min(
     100,
-    Math.round((quranPosition.ayatNumber / Math.max(1, currentSurah.totalAyats)) * 100)
+    Math.round((currentLine / Math.max(1, currentSurah.totalLines)) * 100)
   );
 
   // Chart logs: show up to last 10 days inside the selected period
@@ -195,7 +196,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
               </span>
             </div>
             <span className="rounded-lg border border-slate-900 bg-white px-2 py-0.5 text-xs font-black text-orange-700">
-              Juz {quranPosition.juz} • {currentSurah.name} ({quranPosition.ayatNumber}/{currentSurah.totalAyats})
+              Juz {quranPosition.juz} • {currentSurah.name} (Line {currentLine}/{currentSurah.totalLines})
             </span>
           </div>
           <div className="mt-2 h-3 w-full overflow-hidden rounded-full border-2 border-slate-900 bg-white">
@@ -221,10 +222,10 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
           <div className="rounded-2xl border-2 border-slate-900 bg-gradient-to-br from-orange-100 to-amber-50 p-3 shadow-comic-sm">
             <p className="text-[11px] font-black uppercase text-orange-800">Jadeed Done</p>
             <p className="mt-1 font-comic text-3xl text-slate-950">
-              +{periodJadeedAyats} <span className="text-base">Ayats</span>
+              +{periodJadeedAyats} <span className="text-base">Lines</span>
             </p>
             <p className="mt-0.5 text-xs font-extrabold text-slate-700">
-              Avg Mark: {periodAvgJadeed}/10
+              ~{(periodJadeedAyats / Math.max(1, settings.ayatsPerPage)).toFixed(1)} pgs • Avg {periodAvgJadeed}/10
             </p>
           </div>
 
@@ -387,7 +388,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
           <div className="rounded-2xl border-2 border-slate-900 bg-amber-100 px-3 py-1.5 text-right">
             <p className="text-[10px] font-black uppercase text-slate-600">Real Pace</p>
             <p className="font-display text-lg font-black text-orange-600">
-              {metrics.avgJadeedAyatsPerDay} Ayats/day
+              {metrics.avgJadeedAyatsPerDay} Lines/day
             </p>
           </div>
         </div>
@@ -398,7 +399,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
             <label htmlFor="what-if-pace-slider" className="flex items-center gap-1.5 text-sm font-extrabold text-slate-900">
               <Gauge className="h-4 w-4 text-indigo-600" aria-hidden="true" />
               <span>
-                Test Pace: <strong className="text-indigo-700">{simulatedPace} Jadeed Ayats / day</strong>
+                Test Pace: <strong className="text-indigo-700">{simulatedPace} Misri Lines / day</strong>
               </span>
             </label>
 
@@ -425,9 +426,9 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
             className="mt-2.5 w-full accent-indigo-600 cursor-pointer"
           />
           <div className="mt-1 flex justify-between text-[11px] font-bold text-slate-500">
-            <span>1 Ayat/day</span>
-            <span>15 Ayats (1 Page/day)</span>
-            <span>30 Ayats/day</span>
+            <span>1 Line/day</span>
+            <span>15 Lines (1 Page/day)</span>
+            <span>30 Lines (2 Pgs/day)</span>
           </div>
         </div>
 
@@ -439,7 +440,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
               {forecast.monthPages} <span className="text-lg">Pages</span>
             </p>
             <p className="mt-0.5 text-xs font-extrabold text-slate-700">
-              ~{forecast.monthAyats.toLocaleString()} Jadeed Ayats
+              ~{forecast.monthAyats.toLocaleString()} Misri Lines
             </p>
           </div>
 
@@ -459,7 +460,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
               {forecast.daysPerSipara ?? '—'} <span className="text-lg">Days</span>
             </p>
             <p className="mt-0.5 text-xs font-extrabold text-slate-700">
-              {settings.pagesPerSipara} pages/Sipara
+              {settings.pagesPerSipara} pages/Sipara ({settings.pagesPerSipara * settings.ayatsPerPage} lines)
             </p>
           </div>
 
@@ -469,7 +470,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
               {forecast.yearsForFullQuran ?? '—'} <span className="text-lg">Years</span>
             </p>
             <p className="mt-0.5 text-xs font-extrabold text-slate-700">
-              At {simulatedPace} ayats/day pace
+              At {simulatedPace} lines/day pace
             </p>
           </div>
         </div>
@@ -477,7 +478,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
         <p className="mt-3 flex items-center gap-1.5 text-xs font-bold text-slate-500">
           <Compass className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
           <span>
-            Based on {settings.ayatsPerPage} ayats/page &amp; {settings.pagesPerSipara} pages/Sipara (changeable in Parent HQ).
+            Based on {settings.ayatsPerPage} lines/page (15-line Misri) &amp; {settings.pagesPerSipara} pages/Sipara.
           </span>
         </p>
       </section>
@@ -503,7 +504,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
         ) : (
           <div className="mt-4 rounded-2xl border-2 border-slate-900 bg-slate-50 p-3.5">
             <p className="text-xs font-black uppercase tracking-wide text-slate-600">
-              Daily Jadeed Ayats Memorized (Last {chartLogs.length} Active Days)
+              Daily Jadeed Misri Lines Memorized (Last {chartLogs.length} Active Days)
             </p>
             <div className="mt-3 flex h-36 items-end justify-around gap-2">
               {chartLogs.map((log) => {
@@ -521,7 +522,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
                       <div
                         className="w-full rounded-t-xl border-2 border-slate-900 bg-gradient-to-t from-orange-500 via-amber-400 to-yellow-300 transition-all duration-300"
                         style={{ height: `${heightPct}%` }}
-                        title={`${log.date}: ${log.jadeedAyats} Ayats, Avg Mark ${avg}/10`}
+                        title={`${log.date}: ${log.jadeedAyats} Lines, Avg Mark ${avg}/10`}
                       />
                     </div>
                     <span className="text-[10px] font-extrabold text-slate-700">{shortDate}</span>
@@ -573,7 +574,7 @@ export function TrendsAndForecast({ logs, settings, quranPosition }: TrendsAndFo
                       Juz Hali: <strong>{log.juzHaliPages}p</strong> ({log.juzHaliMark}/10)
                     </span>
                     <span className="rounded-lg bg-orange-100 px-2 py-1 text-orange-900">
-                      Jadeed: <strong>+{log.jadeedAyats}a</strong> ({log.jadeedMark}/10)
+                      Jadeed: <strong>+{log.jadeedAyats}L</strong> ({log.jadeedMark}/10)
                     </span>
                   </div>
                   {log.jadeedNote && (
