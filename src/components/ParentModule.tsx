@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   BookMarked,
   Check,
+  Download,
   Edit3,
   Gift,
   Lock,
@@ -13,16 +14,22 @@ import {
   Trash2,
   Trophy,
   Unlock,
+  Upload,
 } from 'lucide-react';
+import { getLocalDateString, normalizeMultiStore } from '../data/defaultState';
 import { QURAN_JUZ_LIST, QURAN_SURAHS, calculateSiparaProgress, getSurahInfo } from '../data/quranMetadata';
-import type { AppState, LongTermGoal, SurahDirection, TreatItem } from '../types/hifz';
+import type { AppState, HifzMultiStore, LongTermGoal, SurahDirection, TreatItem } from '../types/hifz';
 
 interface ParentModuleProps {
   state: AppState;
+  totalStudents: number;
+  allStudentsStore: HifzMultiStore;
   isUnlocked: boolean;
   onUnlock: () => void;
   onLock: () => void;
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
+  onDeleteStudent?: () => void;
+  onRestoreBackup: (restored: HifzMultiStore) => void;
   onLoadDemo: () => void;
   onResetFresh: () => void;
 }
@@ -42,10 +49,14 @@ const TREAT_EMOJIS = ['🍦', '🎮', '🦸‍♂️', '🍕', '🍿', '🌙', '
 
 export function ParentModule({
   state,
+  totalStudents,
+  allStudentsStore,
   isUnlocked,
   onUnlock,
   onLock,
   onUpdateState,
+  onDeleteStudent,
+  onRestoreBackup,
   onLoadDemo,
   onResetFresh,
 }: ParentModuleProps) {
@@ -105,6 +116,7 @@ export function ParentModule({
 
   const [savedNotice, setSavedNotice] = useState<string>('');
   const [confirmResetMode, setConfirmResetMode] = useState<'demo' | 'fresh' | null>(null);
+  const [confirmDeleteStudent, setConfirmDeleteStudent] = useState<boolean>(false);
 
   const showSavedToast = (msg: string) => {
     setSavedNotice(msg);
@@ -384,14 +396,52 @@ export function ParentModule({
     showSavedToast('Profile & Mushaf settings saved!');
   };
 
+  const handleDownloadBackup = () => {
+    try {
+      const json = JSON.stringify(allStudentsStore, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `hifz-avengers-backup-${getLocalDateString()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showSavedToast('Full multi-student backup file downloaded!');
+    } catch {
+      showSavedToast('Could not generate backup file.');
+    }
+  };
+
+  const handleRestoreFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      const restored = normalizeMultiStore(parsed);
+      onRestoreBackup(restored);
+      showSavedToast(`Restored ${restored.students.length} student profile(s) cleanly!`);
+    } catch {
+      showSavedToast('Invalid backup JSON file. Nothing was changed.');
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Bar */}
       <div className="comic-card flex flex-wrap items-center justify-between gap-2 bg-indigo-700 p-4 text-white">
         <div>
-          <h2 className="font-comic text-2xl tracking-wide">PARENT COMMAND CENTER</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-comic text-2xl tracking-wide">PARENT COMMAND CENTER</h2>
+            <span className="rounded-full border border-slate-900 bg-yellow-300 px-2.5 py-0.5 text-[11px] font-black uppercase text-slate-900">
+              Student: {state.settings.childName}
+            </span>
+          </div>
           <p className="text-xs font-bold text-indigo-100">
-            Configure goals, Spin Wheel treats, &amp; deliver rewards
+            Configure goals, Spin Wheel treats, &amp; deliver rewards for {state.settings.childName}
           </p>
         </div>
         <button
@@ -1206,7 +1256,78 @@ export function ParentModule({
         )}
 
         <div className="mt-5 border-t-2 border-dashed border-slate-200 pt-4">
-          <p className="text-xs font-black uppercase text-slate-700">Reset App Data</p>
+          <p className="text-xs font-black uppercase text-slate-700">
+            Safe Backup &amp; Restore (All Students)
+          </p>
+          <p className="mt-0.5 text-[11px] font-bold text-slate-500">
+            Your data stays safely on the server volume across redeploys. Download a manual copy anytime for extra peace of mind.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadBackup}
+              className="comic-btn inline-flex items-center gap-1.5 rounded-xl bg-sky-100 px-3 py-2 text-xs font-black text-sky-900 hover:bg-sky-200"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Download Backup (.json)</span>
+            </button>
+
+            <label className="comic-btn inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-900 hover:bg-emerald-200">
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Restore from Backup (.json)</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleRestoreFileChange}
+                className="visually-hidden"
+              />
+            </label>
+          </div>
+        </div>
+
+        {totalStudents > 1 && onDeleteStudent && (
+          <div className="mt-5 border-t-2 border-dashed border-slate-200 pt-4">
+            <p className="text-xs font-black uppercase text-slate-700">
+              Remove Student Profile ({state.settings.childName})
+            </p>
+            {confirmDeleteStudent ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border-2 border-slate-900 bg-rose-50 p-3 text-xs font-bold">
+                <span className="flex-1">
+                  Permanently remove <strong>{state.settings.childName}</strong> and their logs?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteStudent();
+                    setConfirmDeleteStudent(false);
+                  }}
+                  className="comic-btn rounded-lg bg-red-600 px-3 py-1.5 text-xs font-black text-white"
+                >
+                  Yes, Remove
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteStudent(false)}
+                  className="comic-btn rounded-lg bg-white px-3 py-1.5 text-xs font-black text-slate-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteStudent(true)}
+                className="comic-btn mt-2 inline-flex items-center gap-1.5 rounded-xl bg-rose-100 px-3 py-2 text-xs font-black text-rose-800"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Remove {state.settings.childName}</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="mt-5 border-t-2 border-dashed border-slate-200 pt-4">
+          <p className="text-xs font-black uppercase text-slate-700">Reset This Student&apos;s Data</p>
           {confirmResetMode ? (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border-2 border-slate-900 bg-rose-50 p-3 text-xs font-bold">
               <span className="flex-1">

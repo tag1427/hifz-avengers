@@ -1,6 +1,18 @@
-import type { AppState, DailyLogEntry, TreatItem } from '../types/hifz';
+import { calculateSiparaProgress, getSurahInfo } from './quranMetadata';
+import type {
+  AppState,
+  DailyLogEntry,
+  HeroId,
+  HifzMultiStore,
+  QuranPosition,
+  StudentProfile,
+  SurahDirection,
+  TreatItem,
+  WonTreatRecord,
+} from '../types/hifz';
 
 export const STORAGE_KEY = 'hifz_avengers_state_v1';
+export const STORE_STORAGE_KEY = 'hifz_avengers_store_v2';
 
 export function getLocalDateString(date: Date = new Date()): string {
   const year = date.getFullYear();
@@ -230,12 +242,393 @@ export async function fetchServerState(): Promise<ServerFetchResult> {
   }
 }
 
-export async function saveServerState(state: AppState): Promise<boolean> {
+export function saveServerState(state: AppState): Promise<boolean> {
+  return saveServerStore(normalizeMultiStore(state));
+}
+
+export interface CreateStudentParams {
+  name: string;
+  heroId: HeroId;
+  juz: number;
+  surahNumber: number;
+  ayatNumber: number;
+  surahDirection: SurahDirection;
+  weeklyTargetAyats: number;
+  parentPin?: string;
+}
+
+export function isStockDemoStudent(student: AppState): boolean {
+  const allDemoLogs = student.logs.every((l) => l.id.startsWith('demo-log-'));
+  const defaultPos =
+    (student.quranPosition.juz === 26 &&
+      student.quranPosition.surahNumber === 50 &&
+      student.quranPosition.ayatNumber === 15) ||
+    (student.quranPosition.juz === 29 &&
+      student.quranPosition.surahNumber === 68 &&
+      student.quranPosition.ayatNumber === 4);
+  const defaultWon = student.wonTreats.every((w) => w.id === 'won-demo-1');
+  const defaultSettings =
+    student.settings.childName === 'Little Champion' &&
+    student.settings.heroId === 'iron-hafiz' &&
+    student.settings.parentPin === '1234';
+  const defaultGoals =
+    student.shortTermGoal.targetAyats === 20 &&
+    student.shortTermGoal.currentAyats === 16 &&
+    student.treats.length === DEFAULT_TREATS.length &&
+    (student.longTermGoal.title === 'Complete Juz 26 (Ha Meem)' ||
+      student.longTermGoal.title === 'Conquer Juz 29 (Sipara Mission)');
+  return allDemoLogs && defaultPos && defaultWon && defaultSettings && defaultGoals;
+}
+
+export function isStoreStockDemo(store: HifzMultiStore): boolean {
+  return store.students.length === 1 && isStockDemoStudent(store.students[0]);
+}
+
+export function syncStoreMirrors(store: HifzMultiStore): HifzMultiStore {
+  const primary =
+    store.students.find((s) => s.id === store.activeStudentId) ?? store.students[0];
+  return {
+    ...store,
+    version: 2,
+    settings: primary.settings,
+    shortTermGoal: primary.shortTermGoal,
+    longTermGoal: primary.longTermGoal,
+  };
+}
+
+export function createNewStudentProfile(params: CreateStudentParams): StudentProfile {
+  const surah = getSurahInfo(params.surahNumber);
+  const clampedJuz = Math.max(1, Math.min(30, params.juz));
+  const clampedAyat = Math.max(0, Math.min(surah.totalAyats, params.ayatNumber));
+  const quranPosition: QuranPosition = {
+    juz: clampedJuz,
+    surahNumber: surah.number,
+    ayatNumber: clampedAyat,
+    surahDirection: params.surahDirection,
+  };
+  const sipara = calculateSiparaProgress(clampedJuz, quranPosition, params.surahDirection);
+  const nowIso = new Date().toISOString();
+  const weeklyTarget = Math.max(1, params.weeklyTargetAyats || 20);
+
+  return {
+    id: `student-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    settings: {
+      childName: params.name.trim() || 'Hero Student',
+      heroId: params.heroId,
+      parentPin: /^\d{4}$/.test(params.parentPin ?? '') ? (params.parentPin as string) : '1234',
+      soundEnabled: true,
+      defaultMurajaatPages: 10,
+      defaultJuzHaliPages: 4,
+      ayatsPerPage: 15,
+      pagesPerSipara: 20,
+    },
+    quranPosition,
+    xp: 0,
+    shortTermGoal: {
+      title: "This Week's Jadeed Target",
+      targetAyats: weeklyTarget,
+      currentAyats: 0,
+      bonusSpins: 0,
+    },
+    longTermGoal: {
+      title: `Complete Juz ${clampedJuz} (${sipara.juzInfo.name})`,
+      mode: 'sipara',
+      targetJuz: clampedJuz,
+      surahDirection: params.surahDirection,
+      unit: 'ayats',
+      targetValue: sipara.totalAyats,
+      currentValue: sipara.completedAyats,
+      grandTreatLabel: 'Special Grand Prize',
+      grandTreatEmoji: '🏆',
+      claimed: false,
+    },
+    treats: DEFAULT_TREATS.map((t) => ({ ...t })),
+    wonTreats: [],
+    logs: [],
+  };
+}
+
+export function normalizeMultiStore(raw: unknown): HifzMultiStore {
+  const nowIso = new Date().toISOString();
+
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+
+    if (Array.isArray(obj.students) && obj.students.length > 0) {
+      const seenIds = new Set<string>();
+      const students: StudentProfile[] = obj.students.map((item, idx) => {
+        const record = (item && typeof item === 'object' ? item : {}) as Partial<StudentProfile>;
+        const normalized = normalizeAppState(record);
+        let id =
+          typeof record.id === 'string' && record.id.trim().length > 0
+            ? record.id.trim()
+            : `student-${idx + 1}`;
+        while (seenIds.has(id)) {
+          id = `${id}-${idx + 1}`;
+        }
+        seenIds.add(id);
+
+        return {
+          ...normalized,
+          id,
+          createdAt: typeof record.createdAt === 'string' ? record.createdAt : nowIso,
+          updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
+        };
+      });
+
+      const activeStudentId =
+        obj.activeStudentId === null
+          ? null
+          : typeof obj.activeStudentId === 'string' &&
+              students.some((s) => s.id === obj.activeStudentId)
+            ? obj.activeStudentId
+            : students[0].id;
+
+      return syncStoreMirrors({
+        version: 2,
+        activeStudentId,
+        students,
+        settings: students[0].settings,
+        shortTermGoal: students[0].shortTermGoal,
+        longTermGoal: students[0].longTermGoal,
+      });
+    }
+
+    // Legacy v1 single-student payload: migrate seamlessly into Student #1
+    if ('settings' in obj || 'logs' in obj || 'quranPosition' in obj || 'shortTermGoal' in obj) {
+      const normalized = normalizeAppState(obj as Partial<AppState>);
+      const firstStudent: StudentProfile = {
+        ...normalized,
+        id: 'student-1',
+        createdAt: nowIso,
+      };
+      return syncStoreMirrors({
+        version: 2,
+        activeStudentId: 'student-1',
+        students: [firstStudent],
+        settings: firstStudent.settings,
+        shortTermGoal: firstStudent.shortTermGoal,
+        longTermGoal: firstStudent.longTermGoal,
+      });
+    }
+  }
+
+  const demo = createDemoState();
+  const defaultStudent: StudentProfile = {
+    ...demo,
+    id: 'student-1',
+    createdAt: nowIso,
+  };
+  return syncStoreMirrors({
+    version: 2,
+    activeStudentId: 'student-1',
+    students: [defaultStudent],
+    settings: defaultStudent.settings,
+    shortTermGoal: defaultStudent.shortTermGoal,
+    longTermGoal: defaultStudent.longTermGoal,
+  });
+}
+
+function mergeTwoStudents(localStudent: StudentProfile, serverStudent: StudentProfile): StudentProfile {
+  const localIsDemo = isStockDemoStudent(localStudent);
+  const serverIsDemo = isStockDemoStudent(serverStudent);
+
+  if (localIsDemo && !serverIsDemo) return serverStudent;
+  if (!localIsDemo && serverIsDemo) return localStudent;
+
+  // Union logs by ID so no entered daily logs can ever be dropped
+  const logMap = new Map<string, DailyLogEntry>();
+  for (const log of serverStudent.logs) {
+    logMap.set(log.id, log);
+  }
+  for (const log of localStudent.logs) {
+    if (!logMap.has(log.id)) {
+      logMap.set(log.id, log);
+    }
+  }
+  const mergedLogs = Array.from(logMap.values()).sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+  );
+
+  // Union won treats by ID (preserve delivered: true if marked delivered in either)
+  const wonMap = new Map<string, WonTreatRecord>();
+  for (const wt of serverStudent.wonTreats) {
+    wonMap.set(wt.id, wt);
+  }
+  for (const wt of localStudent.wonTreats) {
+    const existing = wonMap.get(wt.id);
+    if (!existing) {
+      wonMap.set(wt.id, wt);
+    } else if (wt.delivered && !existing.delivered) {
+      wonMap.set(wt.id, { ...existing, delivered: true });
+    }
+  }
+  const mergedWonTreats = Array.from(wonMap.values()).sort((a, b) =>
+    a.wonAt.localeCompare(b.wonAt)
+  );
+
+  const localTs = Date.parse(localStudent.updatedAt ?? '') || 0;
+  const serverTs = Date.parse(serverStudent.updatedAt ?? '') || 0;
+  const primary = localTs > serverTs ? localStudent : serverStudent;
+
+  const logsXp = mergedLogs.reduce((sum, l) => sum + (l.xpEarned || 0), 0);
+  const mergedXp = Math.max(localStudent.xp, serverStudent.xp, logsXp);
+
+  let nextLongTerm = primary.longTermGoal;
+  if (nextLongTerm.mode !== 'custom') {
+    const dir = nextLongTerm.surahDirection ?? primary.quranPosition.surahDirection ?? 'reverse';
+    const calc = calculateSiparaProgress(
+      nextLongTerm.targetJuz ?? primary.quranPosition.juz,
+      primary.quranPosition,
+      dir
+    );
+    nextLongTerm = {
+      ...nextLongTerm,
+      targetValue: calc.totalAyats,
+      currentValue: calc.completedAyats,
+    };
+  }
+
+  return {
+    ...primary,
+    id: serverStudent.id,
+    createdAt: serverStudent.createdAt || localStudent.createdAt,
+    updatedAt:
+      localTs > serverTs
+        ? localStudent.updatedAt
+        : serverStudent.updatedAt ?? localStudent.updatedAt,
+    xp: mergedXp,
+    longTermGoal: nextLongTerm,
+    wonTreats: mergedWonTreats,
+    logs: mergedLogs,
+  };
+}
+
+export function mergeStoresPreservingUserData(
+  localStore: HifzMultiStore,
+  serverStore: HifzMultiStore
+): HifzMultiStore {
+  const localDemo = isStoreStockDemo(localStore);
+  const serverDemo = isStoreStockDemo(serverStore);
+
+  if (localDemo && !serverDemo) {
+    const activeValid =
+      localStore.activeStudentId &&
+      serverStore.students.some((s) => s.id === localStore.activeStudentId)
+        ? localStore.activeStudentId
+        : serverStore.activeStudentId;
+    return syncStoreMirrors({ ...serverStore, activeStudentId: activeValid });
+  }
+
+  if (!localDemo && serverDemo) {
+    return localStore;
+  }
+
+  if (localDemo && serverDemo) {
+    return serverStore;
+  }
+
+  const localById = new Map<string, StudentProfile>(
+    localStore.students.map((s) => [s.id, s])
+  );
+  const mergedStudents: StudentProfile[] = [];
+  const handledIds = new Set<string>();
+
+  for (const serverStudent of serverStore.students) {
+    const matchingLocal = localById.get(serverStudent.id);
+    handledIds.add(serverStudent.id);
+    if (matchingLocal) {
+      mergedStudents.push(mergeTwoStudents(matchingLocal, serverStudent));
+    } else {
+      mergedStudents.push(serverStudent);
+    }
+  }
+
+  for (const localStudent of localStore.students) {
+    if (!handledIds.has(localStudent.id) && !isStockDemoStudent(localStudent)) {
+      mergedStudents.push(localStudent);
+    }
+  }
+
+  const activeId =
+    localStore.activeStudentId &&
+    mergedStudents.some((s) => s.id === localStore.activeStudentId)
+      ? localStore.activeStudentId
+      : serverStore.activeStudentId &&
+          mergedStudents.some((s) => s.id === serverStore.activeStudentId)
+        ? serverStore.activeStudentId
+        : mergedStudents[0].id;
+
+  return syncStoreMirrors({
+    version: 2,
+    activeStudentId: activeId,
+    students: mergedStudents,
+    settings: mergedStudents[0].settings,
+    shortTermGoal: mergedStudents[0].shortTermGoal,
+    longTermGoal: mergedStudents[0].longTermGoal,
+  });
+}
+
+export function loadMultiStore(): HifzMultiStore {
+  try {
+    const rawV2 = localStorage.getItem(STORE_STORAGE_KEY);
+    if (rawV2) {
+      return normalizeMultiStore(JSON.parse(rawV2));
+    }
+    const rawV1 = localStorage.getItem(STORAGE_KEY);
+    if (rawV1) {
+      return normalizeMultiStore(JSON.parse(rawV1));
+    }
+    return normalizeMultiStore(createDemoState());
+  } catch {
+    return normalizeMultiStore(createDemoState());
+  }
+}
+
+export function saveMultiStore(store: HifzMultiStore): void {
+  try {
+    localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore storage quota errors gracefully
+  }
+}
+
+export type ServerStoreFetchResult =
+  | { reachable: true; store: HifzMultiStore | null }
+  | { reachable: false };
+
+export async function fetchServerStore(): Promise<ServerStoreFetchResult> {
+  try {
+    const res = await fetch('/api/state', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!res.ok) return { reachable: false };
+    const data = (await res.json()) as { state?: unknown };
+    if (!data || !('state' in data)) return { reachable: false };
+    return {
+      reachable: true,
+      store: data.state ? normalizeMultiStore(data.state) : null,
+    };
+  } catch {
+    return { reachable: false };
+  }
+}
+
+export async function saveServerStore(
+  store: HifzMultiStore,
+  options?: { allowReset?: boolean }
+): Promise<boolean> {
   try {
     const res = await fetch('/api/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({
+        state: store,
+        allowReset: Boolean(options?.allowReset),
+      }),
     });
     return res.ok;
   } catch {

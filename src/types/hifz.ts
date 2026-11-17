@@ -99,4 +99,20 @@ export interface AppState {
   logs: DailyLogEntry[];
 }
 
+export interface StudentProfile extends AppState {
+  id: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface HifzMultiStore {
+  version: 2;
+  activeStudentId: string | null;
+  students: StudentProfile[];
+  // Mirrored fields from primary/active student for backward compatibility
+  settings: AppSettings;
+  shortTermGoal: ShortTermGoal;
+  longTermGoal: LongTermGoal;
+}
+
 export type AppTab = 'home' | 'trends' | 'vault' | 'parent';

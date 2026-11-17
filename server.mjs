@@ -7,8 +7,9 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const STATE_FILE = path.join(DATA_DIR, 'hifz-state.json');
+const BACKUP_FILE = path.join(DATA_DIR, 'hifz-state.backup.json');
 const DIST_DIR = path.resolve(process.cwd(), 'dist');
-const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB
+const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MB for multi-student history
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -64,15 +65,56 @@ function readJsonBody(req) {
   });
 }
 
+function isStockDemoStudentServer(student) {
+  if (!student || typeof student !== 'object') return false;
+  const settings = student.settings || {};
+  const logs = Array.isArray(student.logs) ? student.logs : [];
+  const wonTreats = Array.isArray(student.wonTreats) ? student.wonTreats : [];
+  const pos = student.quranPosition || {};
+
+  const allDemoLogs = logs.every((l) => l && typeof l.id === 'string' && l.id.startsWith('demo-log-'));
+  const defaultPos =
+    (pos.juz === 26 && pos.surahNumber === 50 && pos.ayatNumber === 15) ||
+    (pos.juz === 29 && pos.surahNumber === 68 && pos.ayatNumber === 4);
+  const defaultWon = wonTreats.every((w) => w && w.id === 'won-demo-1');
+  const defaultSettings =
+    settings.childName === 'Little Champion' &&
+    (settings.heroId ?? 'iron-hafiz') === 'iron-hafiz' &&
+    (settings.parentPin ?? '1234') === '1234';
+
+  return allDemoLogs && defaultPos && defaultWon && defaultSettings;
+}
+
+function isStockDemoStoreServer(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (Array.isArray(payload.students)) {
+    return payload.students.length === 1 && isStockDemoStudentServer(payload.students[0]);
+  }
+  return isStockDemoStudentServer(payload);
+}
+
+async function readJsonFileSafe(filePath) {
+  const raw = await fsp.readFile(filePath, 'utf-8');
+  return JSON.parse(raw);
+}
+
 async function handleGetState(res) {
   try {
-    const raw = await fsp.readFile(STATE_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
+    const parsed = await readJsonFileSafe(STATE_FILE);
     sendJson(res, 200, { state: parsed });
+    return;
   } catch (err) {
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
-      sendJson(res, 200, { state: null });
+    // Attempt automatic recovery from backup file if primary state file is missing or corrupted
+    try {
+      const backupParsed = await readJsonFileSafe(BACKUP_FILE);
+      console.warn('Primary state missing/unreadable; serving backup:', BACKUP_FILE);
+      sendJson(res, 200, { state: backupParsed, recoveredFromBackup: true });
       return;
+    } catch {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+        sendJson(res, 200, { state: null });
+        return;
+      }
     }
     console.error('Failed to read state file:', err);
     sendJson(res, 500, { error: 'Failed to read state' });
@@ -91,22 +133,60 @@ async function handlePostState(req, res) {
 
   const candidate =
     payload && typeof payload === 'object' && 'state' in payload ? payload.state : payload;
+  const allowReset = Boolean(payload && typeof payload === 'object' && payload.allowReset === true);
 
-  if (
-    !candidate ||
-    typeof candidate !== 'object' ||
-    Array.isArray(candidate) ||
-    !('settings' in candidate) ||
-    !('shortTermGoal' in candidate) ||
-    !('longTermGoal' in candidate)
-  ) {
+  const isValidMulti =
+    candidate &&
+    typeof candidate === 'object' &&
+    !Array.isArray(candidate) &&
+    Array.isArray(candidate.students) &&
+    candidate.students.length > 0;
+
+  const isValidLegacy =
+    candidate &&
+    typeof candidate === 'object' &&
+    !Array.isArray(candidate) &&
+    'settings' in candidate &&
+    'shortTermGoal' in candidate &&
+    'longTermGoal' in candidate;
+
+  if (!isValidMulti && !isValidLegacy) {
     sendJson(res, 400, { error: 'Invalid Hifz app state structure' });
     return;
   }
 
+  let protectedOverwrite = false;
+
   writeQueue = writeQueue
     .then(async () => {
       await fsp.mkdir(DATA_DIR, { recursive: true });
+
+      let existingRaw = null;
+      let existingParsed = null;
+      try {
+        existingRaw = await fsp.readFile(STATE_FILE, 'utf-8');
+        existingParsed = JSON.parse(existingRaw);
+      } catch {
+        // No valid existing file yet
+      }
+
+      if (
+        !allowReset &&
+        existingParsed &&
+        !isStockDemoStoreServer(existingParsed) &&
+        isStockDemoStoreServer(candidate)
+      ) {
+        protectedOverwrite = true;
+        return;
+      }
+
+      // Preserve atomic backup copy of previous valid state before overwriting
+      if (existingRaw && existingParsed) {
+        const tmpBackup = `${BACKUP_FILE}.tmp`;
+        await fsp.writeFile(tmpBackup, existingRaw, 'utf-8');
+        await fsp.rename(tmpBackup, BACKUP_FILE);
+      }
+
       const tmpFile = `${STATE_FILE}.tmp`;
       await fsp.writeFile(tmpFile, JSON.stringify(candidate, null, 2), 'utf-8');
       await fsp.rename(tmpFile, STATE_FILE);
@@ -118,6 +198,13 @@ async function handlePostState(req, res) {
 
   try {
     await writeQueue;
+    if (protectedOverwrite) {
+      sendJson(res, 409, {
+        error: 'Protected existing saved user data from accidental demo overwrite',
+        protected: true,
+      });
+      return;
+    }
     sendJson(res, 200, { ok: true });
   } catch {
     sendJson(res, 500, { error: 'Failed to save state to disk' });
