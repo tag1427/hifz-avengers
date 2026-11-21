@@ -496,3 +496,64 @@ export function advanceQuranPosition(
     summaryText,
   };
 }
+
+/**
+ * Inverse of advanceQuranPosition: rewinds a child's Quran bookmark backwards by `linesToRewind`
+ * Misri lines (respecting 'reverse' vs 'forward' Surah order) when a mistaken entry is deleted.
+ */
+export function rewindQuranPosition(
+  pos: QuranPosition,
+  linesToRewind: number
+): QuranPosition {
+  const direction: SurahDirection = pos.surahDirection ?? 'reverse';
+  const step = direction === 'reverse' ? -1 : 1;
+  const undoStep = -step;
+  const canRewindSurah = (idx: number) =>
+    direction === 'reverse' ? idx < QURAN_SURAHS.length - 1 : idx > 0;
+
+  const safeStartSurah = getSurahInfo(pos.surahNumber);
+  const startLine = getSurahLineFromPosition(pos, safeStartSurah);
+
+  if (linesToRewind <= 0) {
+    return {
+      juz: pos.juz,
+      surahNumber: safeStartSurah.number,
+      ayatNumber: getAyatFromSurahLine(startLine, safeStartSurah),
+      lineNumber: startLine,
+      surahDirection: direction,
+    };
+  }
+
+  let curSurahIdx = QURAN_SURAHS.findIndex((s) => s.number === safeStartSurah.number);
+  if (curSurahIdx < 0) curSurahIdx = 0;
+
+  let curLine = startLine;
+  let remaining = linesToRewind;
+  let crossedSurah = false;
+
+  while (remaining > 0) {
+    if (remaining <= curLine) {
+      curLine -= remaining;
+      remaining = 0;
+    } else {
+      remaining -= curLine;
+      if (canRewindSurah(curSurahIdx)) {
+        curSurahIdx += undoStep;
+        curLine = QURAN_SURAHS[curSurahIdx].totalLines;
+        crossedSurah = true;
+      } else {
+        curLine = 0;
+        remaining = 0;
+      }
+    }
+  }
+
+  const endSurah = QURAN_SURAHS[curSurahIdx];
+  return {
+    juz: crossedSurah ? endSurah.juz : pos.juz,
+    surahNumber: endSurah.number,
+    ayatNumber: getAyatFromSurahLine(curLine, endSurah),
+    lineNumber: curLine,
+    surahDirection: direction,
+  };
+}

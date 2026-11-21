@@ -29,6 +29,7 @@ import {
   isStoreStockDemo,
   loadMultiStore,
   mergeStoresPreservingUserData,
+  rollbackDeletedLog,
   saveMultiStore,
   saveServerStore,
   syncStoreMirrors,
@@ -43,8 +44,13 @@ import type {
   StudentProfile,
   TreatItem,
 } from './types/hifz';
-import { calculateStreak, fireHeroConfetti, getHeroRank } from './utils/hifzMath';
-import { playGrandPrizeChord, playHeroFanfare, playTapClick } from './utils/sound';
+import { calculateStreak, fireAvengersConfettiRain, getHeroRank } from './utils/hifzMath';
+import {
+  playGrandPrizeChord,
+  playHeroSelectSound,
+  playHeroThemeSound,
+  playTapClick,
+} from './utils/sound';
 
 export function App() {
   const [store, setStore] = useState<HifzMultiStore>(() => loadMultiStore());
@@ -268,10 +274,12 @@ export function App() {
         ? (state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse')
         : (state.quranPosition.surahDirection ?? 'reverse');
 
-    const advanceResult = advanceQuranPosition(
-      { ...state.quranPosition, surahDirection: effectiveDirection },
-      payload.jadeedAyats
-    );
+    const previousPosition = {
+      ...state.quranPosition,
+      surahDirection: effectiveDirection,
+    };
+
+    const advanceResult = advanceQuranPosition(previousPosition, payload.jadeedAyats);
 
     const entry: DailyLogEntry = {
       id: `log-${Date.now()}`,
@@ -291,6 +299,7 @@ export function App() {
       jadeedSurahNumber: advanceResult.endSurah.number,
       jadeedStartAyat: advanceResult.startAyat,
       jadeedEndAyat: advanceResult.endAyat,
+      previousPosition,
       xpEarned,
     };
 
@@ -372,8 +381,9 @@ export function App() {
     });
 
     const avgMark = (payload.murajaatMark + payload.juzHaliMark + payload.jadeedMark) / 3;
-    fireHeroConfetti(avgMark >= 9 || wheelUnlockedNow || grandPrizeUnlockedNow ? 'grand' : 'normal');
-    playHeroFanfare(state.settings.soundEnabled);
+    const celebrationIntensity: 'normal' | 'grand' =
+      avgMark >= 9 || wheelUnlockedNow || grandPrizeUnlockedNow ? 'grand' : 'normal';
+    playHeroThemeSound(state.settings.heroId, state.settings.soundEnabled, celebrationIntensity);
 
     setCelebration({
       entry,
@@ -422,7 +432,7 @@ export function App() {
   };
 
   const handleClaimGrandPrize = () => {
-    fireHeroConfetti('grand');
+    fireAvengersConfettiRain(state.settings.heroId, 'grand');
     playGrandPrizeChord(state.settings.soundEnabled);
 
     updateActiveStudent((prev) => ({
@@ -447,7 +457,7 @@ export function App() {
   };
 
   const handleSelectHero = (heroId: HeroId) => {
-    playTapClick(state.settings.soundEnabled);
+    playHeroSelectSound(heroId, state.settings.soundEnabled);
     updateActiveStudent((prev) => ({
       ...prev,
       settings: {
@@ -455,6 +465,33 @@ export function App() {
         heroId,
       },
     }));
+  };
+
+  const handleDeleteLog = (logId: string) => {
+    setStore((prevStore) => {
+      const targetId = prevStore.activeStudentId ?? prevStore.students[0]?.id;
+      const nowIso = new Date().toISOString();
+      const updatedStudents = prevStore.students.map((student) => {
+        if (student.id !== targetId) return student;
+        const { nextState, removedLog } = rollbackDeletedLog(student, logId);
+        if (!removedLog) return student;
+        const nextDeleted = Array.from(
+          new Set([...(student.deletedLogIds ?? []), removedLog.id])
+        ).slice(-250);
+        return {
+          ...nextState,
+          id: student.id,
+          createdAt: student.createdAt,
+          updatedAt: nowIso,
+          deletedLogIds: nextDeleted,
+        };
+      });
+      return syncStoreMirrors({
+        ...prevStore,
+        activeStudentId: targetId,
+        students: updatedStudents,
+      });
+    });
   };
 
   const handleToggleSound = () => {
@@ -590,6 +627,7 @@ export function App() {
                   onUnlock={() => setIsParentUnlocked(true)}
                   onLock={() => setIsParentUnlocked(false)}
                   onUpdateState={updateActiveStudent}
+                  onDeleteLog={handleDeleteLog}
                   onDeleteStudent={handleDeleteActiveStudent}
                   onRestoreBackup={(restored) => {
                     allowNextSaveResetRef.current = true;
@@ -736,6 +774,8 @@ export function App() {
       />
       <CelebrationModal
         celebration={celebration}
+        heroId={state.settings.heroId}
+        soundEnabled={state.settings.soundEnabled}
         onClose={() => setCelebration(null)}
         onOpenWheel={() => setIsWheelOpen(true)}
         onOpenGrandPrize={() => setIsGrandPrizeOpen(true)}
@@ -743,6 +783,7 @@ export function App() {
 
       <TreatSpinWheelModal
         isOpen={isWheelOpen}
+        heroId={state.settings.heroId}
         treats={state.treats}
         shortTermGoal={state.shortTermGoal}
         soundEnabled={state.settings.soundEnabled}

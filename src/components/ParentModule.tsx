@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   BookMarked,
   Check,
@@ -35,6 +35,7 @@ interface ParentModuleProps {
   onUnlock: () => void;
   onLock: () => void;
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
+  onDeleteLog: (logId: string) => void;
   onDeleteStudent?: () => void;
   onRestoreBackup: (restored: HifzMultiStore) => void;
   onLoadDemo: () => void;
@@ -62,6 +63,7 @@ export function ParentModule({
   onUnlock,
   onLock,
   onUpdateState,
+  onDeleteLog,
   onDeleteStudent,
   onRestoreBackup,
   onLoadDemo,
@@ -131,6 +133,68 @@ export function ParentModule({
   const [savedNotice, setSavedNotice] = useState<string>('');
   const [confirmResetMode, setConfirmResetMode] = useState<'demo' | 'fresh' | null>(null);
   const [confirmDeleteStudent, setConfirmDeleteStudent] = useState<boolean>(false);
+
+  // Keep Parent HQ draft metrics synced whenever persisted student progress changes (e.g. log submit, delete rollback, or server sync)
+  useEffect(() => {
+    setQpJuz(state.quranPosition.juz);
+    setQpSurah(state.quranPosition.surahNumber);
+    setQpLine(
+      String(
+        getSurahLineFromPosition(
+          {
+            juz: state.quranPosition.juz,
+            surahNumber: state.quranPosition.surahNumber,
+            lineNumber: state.quranPosition.lineNumber,
+            ayatNumber: state.quranPosition.ayatNumber,
+            surahDirection: state.quranPosition.surahDirection,
+          },
+          getSurahInfo(state.quranPosition.surahNumber)
+        )
+      )
+    );
+    setQpAyat(String(state.quranPosition.ayatNumber));
+    setQpDirection(state.quranPosition.surahDirection ?? 'reverse');
+  }, [
+    state.quranPosition.juz,
+    state.quranPosition.surahNumber,
+    state.quranPosition.lineNumber,
+    state.quranPosition.ayatNumber,
+    state.quranPosition.surahDirection,
+  ]);
+
+  useEffect(() => {
+    setStTitle(state.shortTermGoal.title);
+    setStTarget(String(state.shortTermGoal.targetAyats));
+    setStCurrent(String(state.shortTermGoal.currentAyats));
+  }, [
+    state.shortTermGoal.title,
+    state.shortTermGoal.targetAyats,
+    state.shortTermGoal.currentAyats,
+  ]);
+
+  useEffect(() => {
+    setLtTitle(state.longTermGoal.title);
+    setLtMode(state.longTermGoal.mode ?? 'sipara');
+    setLtTargetJuz(state.longTermGoal.targetJuz ?? state.quranPosition.juz);
+    setLtDirection(
+      state.longTermGoal.surahDirection ?? state.quranPosition.surahDirection ?? 'reverse'
+    );
+    setLtUnit(state.longTermGoal.unit === 'pages' ? 'pages' : 'lines');
+    setLtTarget(String(state.longTermGoal.targetValue));
+    setLtCurrent(String(state.longTermGoal.currentValue));
+    setLtClaimed(state.longTermGoal.claimed);
+  }, [
+    state.longTermGoal.title,
+    state.longTermGoal.mode,
+    state.longTermGoal.targetJuz,
+    state.longTermGoal.surahDirection,
+    state.longTermGoal.unit,
+    state.longTermGoal.targetValue,
+    state.longTermGoal.currentValue,
+    state.longTermGoal.claimed,
+    state.quranPosition.juz,
+    state.quranPosition.surahDirection,
+  ]);
 
   const showSavedToast = (msg: string) => {
     setSavedNotice(msg);
@@ -1298,11 +1362,10 @@ export function ParentModule({
                       type="button"
                       aria-label={`Delete log for ${log.date}`}
                       onClick={() => {
-                        onUpdateState((prev) => ({
-                          ...prev,
-                          logs: prev.logs.filter((l) => l.id !== log.id),
-                        }));
-                        showSavedToast(`Removed log for ${log.date}.`);
+                        onDeleteLog(log.id);
+                        showSavedToast(
+                          `Removed log for ${log.date} and rolled back progress bars, XP & bookmark.`
+                        );
                       }}
                       className="rounded-lg bg-rose-100 p-1.5 text-rose-700 hover:bg-rose-200"
                     >

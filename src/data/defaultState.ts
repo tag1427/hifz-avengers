@@ -3,6 +3,7 @@ import {
   getAyatFromSurahLine,
   getSurahInfo,
   getSurahLineFromPosition,
+  rewindQuranPosition,
 } from './quranMetadata';
 import type {
   AppState,
@@ -298,8 +299,13 @@ export interface CreateStudentParams {
   parentPin?: string;
 }
 
-export function isStockDemoStudent(student: AppState): boolean {
-  const allDemoLogs = student.logs.every((l) => l.id.startsWith('demo-log-'));
+export function isStockDemoStudent(student: AppState | StudentProfile): boolean {
+  const deletedIds = (student as StudentProfile).deletedLogIds;
+  if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+    return false;
+  }
+  const allDemoLogs =
+    student.logs.length > 0 && student.logs.every((l) => l.id.startsWith('demo-log-'));
   const defaultPos =
     (student.quranPosition.juz === 26 &&
       student.quranPosition.surahNumber === 50 &&
@@ -431,6 +437,9 @@ export function normalizeMultiStore(raw: unknown): HifzMultiStore {
           id,
           createdAt: typeof record.createdAt === 'string' ? record.createdAt : nowIso,
           updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
+          deletedLogIds: Array.isArray(record.deletedLogIds)
+            ? record.deletedLogIds.filter((x): x is string => typeof x === 'string').slice(-250)
+            : [],
         };
       });
 
@@ -494,13 +503,21 @@ function mergeTwoStudents(localStudent: StudentProfile, serverStudent: StudentPr
   if (localIsDemo && !serverIsDemo) return serverStudent;
   if (!localIsDemo && serverIsDemo) return localStudent;
 
-  // Union logs by ID so no entered daily logs can ever be dropped
+  // Merge deleted log tombstones so removed logs never resurrect from stale device storage
+  const mergedDeletedIds = Array.from(
+    new Set([...(serverStudent.deletedLogIds ?? []), ...(localStudent.deletedLogIds ?? [])])
+  ).slice(-250);
+  const deletedSet = new Set(mergedDeletedIds);
+
+  // Union logs by ID while excluding deleted logs
   const logMap = new Map<string, DailyLogEntry>();
   for (const log of serverStudent.logs) {
-    logMap.set(log.id, log);
+    if (!deletedSet.has(log.id)) {
+      logMap.set(log.id, log);
+    }
   }
   for (const log of localStudent.logs) {
-    if (!logMap.has(log.id)) {
+    if (!deletedSet.has(log.id) && !logMap.has(log.id)) {
       logMap.set(log.id, log);
     }
   }
@@ -529,8 +546,11 @@ function mergeTwoStudents(localStudent: StudentProfile, serverStudent: StudentPr
   const serverTs = Date.parse(serverStudent.updatedAt ?? '') || 0;
   const primary = localTs > serverTs ? localStudent : serverStudent;
 
-  const logsXp = mergedLogs.reduce((sum, l) => sum + (l.xpEarned || 0), 0);
-  const mergedXp = Math.max(localStudent.xp, serverStudent.xp, logsXp);
+  const primaryLogIds = new Set(primary.logs.map((l) => l.id));
+  const extraUnionedLogsXp = mergedLogs
+    .filter((l) => !primaryLogIds.has(l.id))
+    .reduce((sum, l) => sum + (l.xpEarned || 0), 0);
+  const mergedXp = Math.max(0, primary.xp + extraUnionedLogsXp);
 
   let nextLongTerm = primary.longTermGoal;
   if (nextLongTerm.mode !== 'custom') {
@@ -556,10 +576,98 @@ function mergeTwoStudents(localStudent: StudentProfile, serverStudent: StudentPr
       localTs > serverTs
         ? localStudent.updatedAt
         : serverStudent.updatedAt ?? localStudent.updatedAt,
+    deletedLogIds: mergedDeletedIds,
     xp: mergedXp,
     longTermGoal: nextLongTerm,
     wonTreats: mergedWonTreats,
     logs: mergedLogs,
+  };
+}
+
+/**
+ * Deletes a daily mission log entry and rolls back the student's weekly progress,
+ * Quran bookmark, long-term Sipara/custom progress, and XP cleanly.
+ */
+export function rollbackDeletedLog(
+  prev: AppState,
+  logId: string
+): { nextState: AppState; removedLog: DailyLogEntry | null } {
+  const targetLog = prev.logs.find((l) => l.id === logId);
+  if (!targetLog) {
+    return { nextState: prev, removedLog: null };
+  }
+
+  const remainingLogs = prev.logs.filter((l) => l.id !== logId);
+  const sortedByCreated = [...prev.logs].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const isLatestLog = sortedByCreated[sortedByCreated.length - 1]?.id === targetLog.id;
+
+  const effectiveDirection =
+    prev.longTermGoal.mode !== 'custom'
+      ? (prev.longTermGoal.surahDirection ?? prev.quranPosition.surahDirection ?? 'reverse')
+      : (prev.quranPosition.surahDirection ?? 'reverse');
+
+  let nextPosition = prev.quranPosition;
+  if (isLatestLog && targetLog.previousPosition) {
+    const restoredSurah = getSurahInfo(targetLog.previousPosition.surahNumber);
+    nextPosition = {
+      ...targetLog.previousPosition,
+      lineNumber: getSurahLineFromPosition(targetLog.previousPosition, restoredSurah),
+      surahDirection: targetLog.previousPosition.surahDirection ?? effectiveDirection,
+    };
+  } else if ((targetLog.jadeedAyats || 0) > 0) {
+    nextPosition = rewindQuranPosition(
+      { ...prev.quranPosition, surahDirection: effectiveDirection },
+      targetLog.jadeedAyats
+    );
+  }
+
+  const nextXp = Math.max(0, prev.xp - (targetLog.xpEarned || 0));
+  const nextShortCurrent = Math.max(
+    0,
+    prev.shortTermGoal.currentAyats - (targetLog.jadeedAyats || 0)
+  );
+
+  let nextLongTerm = prev.longTermGoal;
+  if (prev.longTermGoal.mode !== 'custom') {
+    const calc = calculateSiparaProgress(
+      prev.longTermGoal.targetJuz ?? nextPosition.juz,
+      nextPosition,
+      effectiveDirection
+    );
+    nextLongTerm = {
+      ...prev.longTermGoal,
+      unit: 'lines',
+      targetValue: calc.totalLines,
+      currentValue: calc.completedLines,
+      claimed: calc.isComplete ? prev.longTermGoal.claimed : false,
+    };
+  } else {
+    const linesRemoved = targetLog.jadeedAyats || 0;
+    const delta =
+      prev.longTermGoal.unit === 'pages'
+        ? linesRemoved / Math.max(1, prev.settings.ayatsPerPage)
+        : linesRemoved;
+    const nextCurrent = Number(Math.max(0, prev.longTermGoal.currentValue - delta).toFixed(1));
+    nextLongTerm = {
+      ...prev.longTermGoal,
+      currentValue: nextCurrent,
+      claimed: nextCurrent >= prev.longTermGoal.targetValue ? prev.longTermGoal.claimed : false,
+    };
+  }
+
+  return {
+    removedLog: targetLog,
+    nextState: {
+      ...prev,
+      xp: nextXp,
+      quranPosition: nextPosition,
+      logs: remainingLogs,
+      shortTermGoal: {
+        ...prev.shortTermGoal,
+        currentAyats: nextShortCurrent,
+      },
+      longTermGoal: nextLongTerm,
+    },
   };
 }
 

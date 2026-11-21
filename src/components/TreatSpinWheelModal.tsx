@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Gift, Lock, Sparkles, X } from 'lucide-react';
-import type { ShortTermGoal, TreatItem } from '../types/hifz';
+import type { HeroId, ShortTermGoal, TreatItem } from '../types/hifz';
 import { useNativeDialogControls } from '../utils/dialogHelpers';
-import { fireHeroConfetti } from '../utils/hifzMath';
-import { playGrandPrizeChord, playWheelTick } from '../utils/sound';
+import { fireAvengersConfettiRain } from '../utils/hifzMath';
+import { playGrandPrizeChord, playHeroThemeSound, playWheelTick } from '../utils/sound';
 
 interface TreatSpinWheelModalProps {
   isOpen: boolean;
+  heroId?: HeroId;
   treats: TreatItem[];
   shortTermGoal: ShortTermGoal;
   soundEnabled: boolean;
@@ -47,6 +48,7 @@ function describeSlicePath(cx: number, cy: number, r: number, startDeg: number, 
 
 export function TreatSpinWheelModal({
   isOpen,
+  heroId = 'iron-hafiz',
   treats,
   shortTermGoal,
   soundEnabled,
@@ -55,6 +57,8 @@ export function TreatSpinWheelModal({
 }: TreatSpinWheelModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stopConfettiRef = useRef<(() => void) | null>(null);
 
   const [rotationDeg, setRotationDeg] = useState<number>(0);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
@@ -75,6 +79,8 @@ export function TreatSpinWheelModal({
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
       }
+      stopConfettiRef.current?.();
+      stopConfettiRef.current = null;
     };
   }, [isOpen]);
 
@@ -147,7 +153,13 @@ export function TreatSpinWheelModal({
         setIsSpinning(false);
         const landedTreat = safeTreats[winIndex];
         setWinner(landedTreat);
-        fireHeroConfetti('grand');
+        stopConfettiRef.current?.();
+        stopConfettiRef.current = fireAvengersConfettiRain(
+          heroId,
+          'grand',
+          confettiCanvasRef.current
+        );
+        playHeroThemeSound(heroId, soundEnabled, 'grand');
         playGrandPrizeChord(soundEnabled);
         onTreatWon(landedTreat);
       }
@@ -163,7 +175,7 @@ export function TreatSpinWheelModal({
       aria-labelledby="spin-wheel-title"
       className="w-full"
     >
-      <div className="comic-card overflow-hidden bg-white">
+      <div className="comic-card relative z-10 overflow-hidden bg-white">
         {/* Header */}
         <div className="flex items-center justify-between border-b-[3px] border-slate-900 bg-gradient-to-r from-amber-400 via-yellow-300 to-orange-400 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -364,6 +376,13 @@ export function TreatSpinWheelModal({
           </div>
         </div>
       </div>
+
+      <canvas
+        ref={confettiCanvasRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-20"
+        style={{ width: '100dvw', height: '100dvh' }}
+      />
     </dialog>
   );
 }

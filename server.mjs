@@ -72,7 +72,11 @@ function isStockDemoStudentServer(student) {
   const wonTreats = Array.isArray(student.wonTreats) ? student.wonTreats : [];
   const pos = student.quranPosition || {};
 
-  const allDemoLogs = logs.every((l) => l && typeof l.id === 'string' && l.id.startsWith('demo-log-'));
+  if (Array.isArray(student.deletedLogIds) && student.deletedLogIds.length > 0) {
+    return false;
+  }
+  const allDemoLogs =
+    logs.length > 0 && logs.every((l) => l && typeof l.id === 'string' && l.id.startsWith('demo-log-'));
   const defaultPos =
     (pos.juz === 26 &&
       pos.surahNumber === 50 &&

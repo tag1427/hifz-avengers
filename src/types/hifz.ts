@@ -38,6 +38,7 @@ export interface DailyLogEntry {
   jadeedSurahNumber?: number;
   jadeedStartAyat?: number;
   jadeedEndAyat?: number;
+  previousPosition?: QuranPosition;
   xpEarned: number;
 }
 
@@ -104,6 +105,7 @@ export interface StudentProfile extends AppState {
   id: string;
   createdAt: string;
   updatedAt?: string;
+  deletedLogIds?: string[];
 }
 
 export interface HifzMultiStore {

@@ -1,5 +1,5 @@
 import confetti from 'canvas-confetti';
-import type { AppSettings, DailyLogEntry } from '../types/hifz';
+import type { AppSettings, DailyLogEntry, HeroId } from '../types/hifz';
 import { getLocalDateString } from '../data/defaultState';
 
 export interface HeroRankInfo {
@@ -204,37 +204,166 @@ export function calculateForecast(ayatsPerDay: number, settings: AppSettings): P
   };
 }
 
-export function fireHeroConfetti(intensity: 'normal' | 'grand' = 'normal'): void {
-  const colors = ['#dc2626', '#facc15', '#2563eb', '#22c55e', '#a855f7'];
-  if (intensity === 'grand') {
-    confetti({
-      particleCount: 110,
+export const HERO_CONFETTI_CONFIG: Record<HeroId, { colors: string[]; emojis: string[] }> = {
+  'iron-hafiz': {
+    colors: ['#dc2626', '#facc15', '#38bdf8', '#ffffff'],
+    emojis: ['🤖', '⚡', '🔥'],
+  },
+  'captain-noor': {
+    colors: ['#2563eb', '#dc2626', '#f8fafc', '#93c5fd'],
+    emojis: ['🛡️', '⭐', '⚡'],
+  },
+  'spidey-reciter': {
+    colors: ['#e11d48', '#1d4ed8', '#ffffff', '#fef08a'],
+    emojis: ['🕸️', '🕷️', '⚡'],
+  },
+  'wakanda-guardian': {
+    colors: ['#7c3aed', '#f59e0b', '#c084fc', '#e9d5ff'],
+    emojis: ['🐾', '💜', '👑'],
+  },
+  'thunder-qari': {
+    colors: ['#0284c7', '#eab308', '#38bdf8', '#f0f9ff'],
+    emojis: ['⚡', '🔨', '🌩️'],
+  },
+};
+
+const heroShapeCache = new Map<HeroId, confetti.Shape[]>();
+
+function getHeroConfettiShapes(heroId: HeroId): confetti.Shape[] {
+  const cached = heroShapeCache.get(heroId);
+  if (cached) return cached;
+
+  const baseShapes: confetti.Shape[] = ['square', 'circle', 'star'];
+  if (typeof document !== 'undefined' && typeof confetti.shapeFromText === 'function') {
+    try {
+      const emojiShapes = HERO_CONFETTI_CONFIG[heroId].emojis.map((text) =>
+        confetti.shapeFromText({ text, scalar: 2 })
+      );
+      const combined = [...emojiShapes, 'star', 'circle'] as confetti.Shape[];
+      heroShapeCache.set(heroId, combined);
+      return combined;
+    } catch {
+      // Fallback to geometric shapes if canvas emoji shaping fails
+    }
+  }
+  return baseShapes;
+}
+
+/**
+ * Rains Avengers hero-themed confetti + custom hero emoji shapes across the viewport
+ * (inside a Top Layer dialog canvas when provided) while respecting reduced motion.
+ */
+export function fireAvengersConfettiRain(
+  heroId: HeroId,
+  intensity: 'normal' | 'grand' = 'normal',
+  targetCanvas?: HTMLCanvasElement | null
+): () => void {
+  if (
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    return () => {};
+  }
+
+  const { colors } = HERO_CONFETTI_CONFIG[heroId];
+  const shapes = getHeroConfettiShapes(heroId);
+
+  const instance = targetCanvas
+    ? confetti.create(targetCanvas, {
+        resize: true,
+        useWorker: false,
+        disableForReducedMotion: true,
+      })
+    : confetti;
+
+  // Continuous rain shower across the top of the screen (< 3s, WCAG 2.2.2 compliant)
+  const durationMs = intensity === 'grand' ? 2800 : 2100;
+  let startRaf = 0;
+  let rafId = 0;
+  let cancelled = false;
+
+  // Defer 1 frame when mounting inside a freshly opened <dialog> Top Layer so canvas sizing settles
+  startRaf = requestAnimationFrame(() => {
+    if (cancelled) return;
+
+    instance({
+      particleCount: intensity === 'grand' ? 75 : 50,
       spread: 85,
-      origin: { y: 0.55 },
+      startVelocity: 40,
+      origin: { x: 0.5, y: 0.52 },
       colors,
+      shapes,
+      scalar: 1.15,
+      disableForReducedMotion: true,
     });
-    setTimeout(() => {
-      confetti({
-        particleCount: 70,
+
+    if (intensity === 'grand') {
+      instance({
+        particleCount: 40,
         angle: 60,
         spread: 60,
-        origin: { x: 0.1, y: 0.65 },
+        origin: { x: 0.05, y: 0.65 },
         colors,
+        shapes,
+        scalar: 1.15,
+        disableForReducedMotion: true,
       });
-      confetti({
-        particleCount: 70,
+      instance({
+        particleCount: 40,
         angle: 120,
         spread: 60,
-        origin: { x: 0.9, y: 0.65 },
+        origin: { x: 0.95, y: 0.65 },
         colors,
+        shapes,
+        scalar: 1.15,
+        disableForReducedMotion: true,
       });
-    }, 220);
-  } else {
-    confetti({
-      particleCount: 75,
-      spread: 70,
-      origin: { y: 0.62 },
-      colors,
-    });
-  }
+    }
+
+    const endTime = performance.now() + durationMs;
+    let lastRainTick = 0;
+
+    const tick = (now: number) => {
+      if (cancelled) return;
+      if (now - lastRainTick >= 90) {
+        lastRainTick = now;
+        instance({
+          particleCount: intensity === 'grand' ? 7 : 5,
+          angle: 90,
+          spread: 110,
+          startVelocity: 18,
+          gravity: 0.9,
+          ticks: 240,
+          drift: (Math.random() - 0.5) * 0.8,
+          origin: { x: 0.06 + Math.random() * 0.88, y: -0.05 },
+          colors,
+          shapes,
+          scalar: 1.1,
+          disableForReducedMotion: true,
+        });
+      }
+      if (now < endTime) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+
+    rafId = requestAnimationFrame(tick);
+  });
+
+  return () => {
+    cancelled = true;
+    if (startRaf) cancelAnimationFrame(startRaf);
+    if (rafId) cancelAnimationFrame(rafId);
+    if (targetCanvas && 'reset' in instance && typeof instance.reset === 'function') {
+      instance.reset();
+    }
+  };
+}
+
+export function fireHeroConfetti(
+  intensity: 'normal' | 'grand' = 'normal',
+  heroId: HeroId = 'iron-hafiz'
+): void {
+  fireAvengersConfettiRain(heroId, intensity);
 }

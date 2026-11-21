@@ -1,8 +1,11 @@
-import { useRef } from 'react';
-import { Sparkles, Trophy, Zap } from 'lucide-react';
-import type { DailyLogEntry } from '../types/hifz';
+import { useEffect, useRef, useState } from 'react';
+import { RotateCw, Sparkles, Trophy, Zap } from 'lucide-react';
+import { HERO_THEMES } from '../data/heroes';
+import type { DailyLogEntry, HeroId } from '../types/hifz';
 import { useNativeDialogControls } from '../utils/dialogHelpers';
-import { getMarkFeedback } from '../utils/hifzMath';
+import { fireAvengersConfettiRain, getMarkFeedback } from '../utils/hifzMath';
+import { playHeroThemeSound } from '../utils/sound';
+import { HeroAvatarSvg } from './HeroAvatarSvg';
 
 export interface CelebrationPayload {
   entry: DailyLogEntry;
@@ -14,6 +17,8 @@ export interface CelebrationPayload {
 
 interface CelebrationModalProps {
   celebration: CelebrationPayload | null;
+  heroId: HeroId;
+  soundEnabled: boolean;
   onClose: () => void;
   onOpenWheel: () => void;
   onOpenGrandPrize: () => void;
@@ -21,11 +26,15 @@ interface CelebrationModalProps {
 
 export function CelebrationModal({
   celebration,
+  heroId,
+  soundEnabled,
   onClose,
   onOpenWheel,
   onOpenGrandPrize,
 }: CelebrationModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [replayNonce, setReplayNonce] = useState<number>(0);
 
   useNativeDialogControls(dialogRef, celebration !== null, (returnValue) => {
     if (returnValue === 'spin') {
@@ -39,11 +48,31 @@ export function CelebrationModal({
     }
   });
 
+  useEffect(() => {
+    if (!celebration) return;
+    const { entry, wheelUnlockedNow, grandPrizeUnlockedNow } = celebration;
+    const avg =
+      (entry.murajaatMark + entry.juzHaliMark + entry.jadeedMark) / 3;
+    const intensity: 'normal' | 'grand' =
+      avg >= 9 || wheelUnlockedNow || grandPrizeUnlockedNow ? 'grand' : 'normal';
+
+    const stopConfetti = fireAvengersConfettiRain(
+      heroId,
+      intensity,
+      confettiCanvasRef.current
+    );
+
+    return () => {
+      stopConfetti();
+    };
+  }, [celebration, heroId, replayNonce]);
+
   if (!celebration) {
     return <dialog ref={dialogRef} aria-labelledby="celebration-title" />;
   }
 
   const { entry, leveledUp, newLevel, wheelUnlockedNow, grandPrizeUnlockedNow } = celebration;
+  const hero = HERO_THEMES[heroId];
   const avgMark = Number(
     ((entry.murajaatMark + entry.juzHaliMark + entry.jadeedMark) / 3).toFixed(1)
   );
@@ -56,17 +85,22 @@ export function CelebrationModal({
       aria-labelledby="celebration-title"
       className="w-full"
     >
-      <div className="comic-card overflow-hidden bg-white">
-        <div className="bg-gradient-to-r from-red-600 via-amber-500 to-yellow-400 px-5 py-4 text-center text-white border-b-[3px] border-slate-900">
-          <p className="font-comic text-sm tracking-widest text-yellow-100">
-            MASHALLAH! MISSION COMPLETE!
-          </p>
-          <h2
-            id="celebration-title"
-            className="mt-0.5 font-comic text-3xl tracking-wide text-white drop-shadow-[2px_2px_0_#0f172a]"
-          >
-            {avgMark >= 9 ? 'BOOM! AVENGER LEVEL!' : avgMark >= 7 ? 'POW! SUPER HERO!' : 'GREAT EFFORT, HERO!'}
-          </h2>
+      <div className="comic-card relative z-10 max-h-[88dvh] overflow-y-auto bg-white">
+        <div
+          className={`flex items-center gap-3 border-b-[3px] border-slate-900 bg-gradient-to-r ${hero.gradientClass} px-4 py-3.5 text-white`}
+        >
+          <HeroAvatarSvg heroId={heroId} className="h-14 w-14 shrink-0 drop-shadow" />
+          <div className="min-w-0 flex-1 text-left">
+            <p className="font-comic text-xs tracking-widest text-yellow-200">
+              MASHALLAH! {hero.name.toUpperCase()} MISSION COMPLETE!
+            </p>
+            <h2
+              id="celebration-title"
+              className="mt-0.5 font-comic text-2xl sm:text-3xl tracking-wide text-white drop-shadow-[2px_2px_0_#0f172a]"
+            >
+              {avgMark >= 9 ? 'BOOM! AVENGER LEVEL!' : avgMark >= 7 ? 'POW! SUPER HERO!' : 'GREAT EFFORT, HERO!'}
+            </h2>
+          </div>
         </div>
 
         <div className="space-y-3.5 p-5">
@@ -168,6 +202,20 @@ export function CelebrationModal({
             )}
 
             <button
+              type="button"
+              onClick={() => {
+                const intensityVal: 'normal' | 'grand' =
+                  avgMark >= 9 || wheelUnlockedNow || grandPrizeUnlockedNow ? 'grand' : 'normal';
+                playHeroThemeSound(heroId, soundEnabled, intensityVal);
+                setReplayNonce((n) => n + 1);
+              }}
+              className="comic-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-100 px-4 py-2 text-xs font-black uppercase tracking-wide text-indigo-950 hover:bg-indigo-200"
+            >
+              <RotateCw className="h-4 w-4" aria-hidden="true" />
+              <span>Replay {hero.name} Confetti &amp; Sound!</span>
+            </button>
+
+            <button
               type="submit"
               value="close"
               autoFocus={!wheelUnlockedNow && !grandPrizeUnlockedNow}
@@ -178,6 +226,14 @@ export function CelebrationModal({
           </form>
         </div>
       </div>
+
+      {/* Top-layer viewport canvas so Avengers confetti rains over backdrop & modal */}
+      <canvas
+        ref={confettiCanvasRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-20"
+        style={{ width: '100dvw', height: '100dvh' }}
+      />
     </dialog>
   );
 }
